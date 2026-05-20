@@ -19,11 +19,26 @@ type EngineResult = {
 };
 
 type AppSettings = {
-  theme: "graphite" | "midnight" | "light";
+  theme: "aegis" | "graphite" | "midnight" | "slate" | "high_contrast" | "light";
   autosave: boolean;
   autosaveIntervalSeconds: number;
   previewTimeSeconds: number;
   keyboardShortcuts: boolean;
+  onboardingComplete: boolean;
+  defaultWorkflow: "quick" | "guided" | "advanced";
+  defaultPlatform: string;
+  defaultStyle: string;
+  defaultExportFolder?: string | null;
+  beginnerTips: boolean;
+  workspacePreset: "beginner" | "ai" | "editing" | "captions" | "export" | "minimal";
+  panelDock: "standard" | "inspector_left" | "media_right" | "preview_focus";
+  uiScale: "small" | "medium" | "large" | "auto";
+  accentColor: string;
+  leftRailWidth: number;
+  rightRailWidth: number;
+  leftRailOpen: boolean;
+  rightRailOpen: boolean;
+  monitorPositions?: Record<string, { x?: number; y?: number; width: number; height: number }>;
 };
 
 type TemplatePack = {
@@ -185,12 +200,21 @@ type QueuedRenderJob = {
   completedScenes?: number;
 };
 
+type RecoveryPoint = {
+  type: string;
+  path: string;
+  timestamp?: string;
+  size?: number;
+  projectId?: string;
+};
+
 const engineRoot = app.isPackaged ? path.join(process.resourcesPath, "engine") : path.resolve(__dirname, "..", "..");
 const renderPy = path.join(engineRoot, "render.py");
 const pythonBinary = process.env.PYTHON || "python";
 const userDataDir = app.getPath("userData");
 const recentPath = path.join(userDataDir, "recent-projects.json");
 const settingsPath = path.join(userDataDir, "settings.json");
+const sessionStatePath = path.join(userDataDir, "session-state.json");
 const frictionLogPath = path.join(userDataDir, "friction-events.jsonl");
 const adaptiveMemoryPath = path.join(userDataDir, "adaptive-workflow-memory.json");
 const generatedDir = app.isPackaged ? path.join(userDataDir, "projects") : path.join(engineRoot, "examples", "generated");
@@ -207,6 +231,10 @@ let splashWindow: BrowserWindow | null = null;
 let renderQueue: QueuedRenderJob[] = [];
 let activeRender: QueuedRenderJob | null = null;
 let renderQueuePaused = false;
+let startupRecoveryState: { crashed: boolean; lastSavedAt?: string; latestRecovery?: RecoveryPoint | null } = {
+  crashed: false,
+  latestRecovery: null
+};
 
 function createSplashWindow() {
   splashWindow = new BrowserWindow({
@@ -254,7 +282,9 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  startupRecoveryState = await readStartupRecoveryState();
+  writeSessionState(true);
   registerIpc();
   createSplashWindow();
   createWindow();
@@ -265,6 +295,10 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+app.on("before-quit", () => {
+  writeSessionState(false);
 });
 
 function registerIpc() {
@@ -603,9 +637,17 @@ function registerIpc() {
     return readProjectFile(payload.projectPath);
   });
 
+  ipcMain.handle("history:duplicate", async (_event, payload: { projectPath: string; versionId: string }) => {
+    return duplicateHistoryVersion(payload.projectPath, payload.versionId);
+  });
+
+  ipcMain.handle("history:compare", async (_event, payload: { projectPath: string; versionId: string }) => {
+    return compareHistoryVersion(payload.projectPath, payload.versionId);
+  });
+
   ipcMain.handle("package:export", async (_event, payload: { text: string; projectPath?: string | null }) => {
-    const input = payload.projectPath || await writeTempProject(payload.text, "package-input");
-    if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
+    const input = await writeTempProject(payload.text, "package-input");
+    if (payload.projectPath) await addRecent(payload.projectPath);
     const result = await dialog.showSaveDialog({
       title: "Export project package",
       defaultPath: path.join(outputRoot, "project.avepkg.zip"),
@@ -870,6 +912,8 @@ function registerIpc() {
 
   ipcMain.handle("settings:get", async () => readSettings());
 
+  ipcMain.handle("settings:pickExportFolder", async () => pickFolder("Choose default export folder"));
+
   ipcMain.handle("settings:save", async (_event, settings: unknown) => {
     const next = { ...defaultSettings(), ...(settings as Record<string, unknown>) };
     await fs.mkdir(userDataDir, { recursive: true });
@@ -879,18 +923,27 @@ function registerIpc() {
     return next;
   });
 
+  ipcMain.handle("layout:popout", async (_event, payload: { panel: "preview" | "timeline" | "inspector"; title?: string | null; projectPath?: string | null; previewPath?: string | null }) => {
+    return openDetachedPanel(payload);
+  });
+
   ipcMain.handle("friction:log", async (_event, payload: FrictionEvent) => logFrictionEvent(payload));
 
   ipcMain.handle("friction:report", async () => readFrictionReport());
 
-  ipcMain.handle("recovery:autosave", async (_event, payload: { text: string; projectPath?: string | null }) => {
+  ipcMain.handle("recovery:startup", async () => startupRecoveryState);
+
+  ipcMain.handle("recovery:latest", async () => readLatestRecoveryPoint());
+
+  ipcMain.handle("recovery:autosave", async (_event, payload: { text: string; projectPath?: string | null; reason?: string | null }) => {
     if (!payload.text.trim()) return null;
     const projectId = payload.projectPath ? safeAssetKey(payload.projectPath) : "unsaved";
     const dir = path.join(userDataDir, "recovery", projectId);
     await fs.mkdir(dir, { recursive: true });
-    const filePath = path.join(dir, `autosave-${Date.now()}.json`);
+    const reason = safeAssetKey(payload.reason || "autosave");
+    const filePath = path.join(dir, `${reason}-${Date.now()}.json`);
     await fs.writeFile(filePath, payload.text, "utf-8");
-    return { type: "autosave", path: filePath, timestamp: new Date().toISOString(), size: Buffer.byteLength(payload.text) };
+    return { type: reason, path: filePath, timestamp: new Date().toISOString(), size: Buffer.byteLength(payload.text), projectId };
   });
 
   ipcMain.handle("recovery:list", async (_event, payload: { projectPath?: string | null }) => {
@@ -906,6 +959,10 @@ function registerIpc() {
     await fs.writeFile(target, text, "utf-8");
     await addRecent(target);
     return readProjectFile(target);
+  });
+
+  ipcMain.handle("project:health", async (_event, payload: { text: string; projectPath?: string | null }) => {
+    return projectHealthCheck(payload.text, payload.projectPath || null);
   });
 
   ipcMain.handle("phase10:status", async () => {
@@ -1055,6 +1112,32 @@ function registerIpc() {
   ipcMain.handle("shell:openOutput", async () => {
     await shell.openPath(outputRoot);
   });
+
+  ipcMain.handle("system:metrics", async () => {
+    const metrics = app.getAppMetrics() as Array<Record<string, any>>;
+    const totalCpu = metrics.reduce((sum, metric) => sum + Number(metric.cpu?.percentCPUUsage || 0), 0);
+    const gpuMetric = metrics.find((metric) => String(metric.type || metric.name || "").toLowerCase().includes("gpu"));
+    const memoryMb = metrics.reduce((sum, metric) => sum + Number(metric.memory?.workingSetSize || 0) / 1024, 0);
+    const electronProcess = process as typeof process & { getSystemMemoryInfo?: () => { total?: number; free?: number } };
+    const systemMemory = electronProcess.getSystemMemoryInfo?.();
+    const totalMemoryMb = Number(systemMemory?.total || 0) / 1024;
+    const usedSystemMb = totalMemoryMb ? totalMemoryMb - (Number(systemMemory?.free || 0) / 1024) : memoryMb;
+    const gpuFeatures = app.getGPUFeatureStatus();
+    const gpuMode = gpuMetric
+      ? "GPU process active"
+      : Object.values(gpuFeatures).some((value) => String(value).includes("enabled"))
+        ? "GPU features available"
+        : "GPU unavailable or disabled";
+    return {
+      cpuPercent: Math.max(0, Number(totalCpu.toFixed(1))),
+      gpuPercent: Math.max(0, Number(Number(gpuMetric?.cpu?.percentCPUUsage || 0).toFixed(1))),
+      memoryUsedMb: Math.max(0, Number(usedSystemMb.toFixed(0))),
+      memoryTotalMb: Math.max(0, Number(totalMemoryMb.toFixed(0))),
+      gpuProcessActive: Boolean(gpuMetric),
+      gpuMode,
+      sampledAt: Date.now()
+    };
+  });
 }
 
 async function readProjectFile(filePath: string) {
@@ -1065,11 +1148,8 @@ async function readProjectFile(filePath: string) {
 
 async function enqueueRender(payload: RenderPayload) {
   const runId = crypto.randomUUID();
-  const input = payload.projectPath || await writeTempProject(payload.text, `render-${runId}`);
-  if (payload.projectPath) {
-    await fs.writeFile(payload.projectPath, payload.text, "utf-8");
-    await addRecent(payload.projectPath);
-  }
+  const input = await writeTempProject(payload.text, `render-${runId}`);
+  if (payload.projectPath) await addRecent(payload.projectPath);
   const requestedFormat = payload.format || "mp4";
   const extension = requestedFormat === "image_sequence" ? "png" : requestedFormat;
   const outputName = requestedFormat === "image_sequence"
@@ -1377,11 +1457,26 @@ async function addRecent(filePath: string) {
 
 function defaultSettings(): AppSettings {
   return {
-    theme: "graphite",
+    theme: "aegis",
     autosave: true,
-    autosaveIntervalSeconds: 45,
+    autosaveIntervalSeconds: 120,
     previewTimeSeconds: 1,
-    keyboardShortcuts: true
+    keyboardShortcuts: true,
+    onboardingComplete: false,
+    defaultWorkflow: "quick",
+    defaultPlatform: "youtube_shorts",
+    defaultStyle: "cinematic",
+    defaultExportFolder: exportsRoot,
+    beginnerTips: true,
+    workspacePreset: "editing",
+    panelDock: "standard",
+    uiScale: "medium",
+    accentColor: "#6db5a5",
+    leftRailWidth: 260,
+    rightRailWidth: 360,
+    leftRailOpen: true,
+    rightRailOpen: true,
+    monitorPositions: {}
   };
 }
 
@@ -1392,6 +1487,85 @@ async function readSettings(): Promise<AppSettings> {
   } catch {
     return defaultSettings();
   }
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function localFileUrl(filePath: string) {
+  return `file:///${filePath.replace(/\\/g, "/").replace(/ /g, "%20").replace(/#/g, "%23")}`;
+}
+
+async function openDetachedPanel(payload: { panel: "preview" | "timeline" | "inspector"; title?: string | null; projectPath?: string | null; previewPath?: string | null }) {
+  const settings = await readSettings();
+  const panel = payload.panel;
+  const saved = settings.monitorPositions?.[panel];
+  const width = Math.max(420, Math.min(2200, Number(saved?.width || (panel === "preview" ? 960 : 760))));
+  const height = Math.max(320, Math.min(1400, Number(saved?.height || (panel === "timeline" ? 520 : 640))));
+  const win = new BrowserWindow({
+    width,
+    height,
+    x: typeof saved?.x === "number" ? saved.x : undefined,
+    y: typeof saved?.y === "number" ? saved.y : undefined,
+    minWidth: 420,
+    minHeight: 320,
+    title: payload.title || `${panel} - Automatic Video Editor`,
+    backgroundColor: "#11100e",
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+  const previewVideo = panel === "preview" && payload.previewPath
+    ? `<video controls autoplay muted loop src="${localFileUrl(payload.previewPath)}"></video>`
+    : "";
+  const html = `<!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>${escapeHtml(payload.title || panel)}</title>
+        <style>
+          :root { color-scheme: dark; font-family: Inter, Segoe UI, system-ui, sans-serif; background: #11100e; color: #f4f0e8; }
+          body { margin: 0; min-height: 100vh; display: grid; grid-template-rows: auto 1fr; background: #11100e; }
+          header { padding: 12px 14px; border-bottom: 1px solid #39352d; background: #181713; display: grid; gap: 3px; }
+          strong { font-size: 15px; }
+          span { color: #b7afa2; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+          main { min-height: 0; display: grid; place-items: center; padding: 18px; }
+          video { max-width: 100%; max-height: calc(100vh - 92px); background: #000; border: 1px solid #39352d; border-radius: 8px; }
+          .placeholder { width: min(620px, 100%); border: 1px solid #39352d; border-radius: 10px; background: #181713; padding: 18px; display: grid; gap: 8px; }
+          .accent { color: #8ed7c8; }
+        </style>
+      </head>
+      <body>
+        <header>
+          <strong>${escapeHtml(payload.title || `${panel} panel`)}</strong>
+          <span>${escapeHtml(payload.projectPath || "Unsaved local project")}</span>
+        </header>
+        <main>
+          ${previewVideo || `<div class="placeholder"><strong class="accent">${escapeHtml(panel)} panel popped out</strong><span>This detached window remembers its size and monitor position. Keep editing in the main app; this window is a workspace helper around the existing editor.</span></div>`}
+        </main>
+      </body>
+    </html>`;
+  await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  win.on("close", async () => {
+    const current = await readSettings();
+    const next: AppSettings = {
+      ...current,
+      monitorPositions: {
+        ...(current.monitorPositions || {}),
+        [panel]: win.getBounds()
+      }
+    };
+    await fs.mkdir(userDataDir, { recursive: true });
+    await fs.writeFile(settingsPath, JSON.stringify(next, null, 2), "utf-8");
+  });
+  await logFrictionEvent({ event: "layout_popout", label: panel });
+  return { panel, bounds: win.getBounds() };
 }
 
 async function logFrictionEvent(payload: FrictionEvent) {
@@ -1980,19 +2154,60 @@ function wordTokens(text: string) {
 
 async function readRecoveryPoints(dir: string) {
   if (!fsSync.existsSync(dir)) return [];
-  const points = [];
+  const points: RecoveryPoint[] = [];
+  const projectId = path.basename(dir);
   for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
     if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== ".json") continue;
     const filePath = path.join(dir, entry.name);
     const stat = await fs.stat(filePath);
     points.push({
-      type: entry.name.startsWith("autosave") ? "autosave" : "backup",
+      type: entry.name.startsWith("autosave") ? "autosave" : entry.name.split("-")[0] || "backup",
       path: filePath,
       timestamp: stat.mtime.toISOString(),
-      size: stat.size
+      size: stat.size,
+      projectId
     });
   }
   return points.sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)));
+}
+
+async function readAllRecoveryPoints() {
+  const root = path.join(userDataDir, "recovery");
+  if (!fsSync.existsSync(root)) return [] as RecoveryPoint[];
+  const all: RecoveryPoint[] = [];
+  for (const entry of await fs.readdir(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    all.push(...await readRecoveryPoints(path.join(root, entry.name)));
+  }
+  return all.sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
+}
+
+async function readLatestRecoveryPoint() {
+  return (await readAllRecoveryPoints())[0] || null;
+}
+
+async function readStartupRecoveryState() {
+  let previous: Record<string, unknown> | null = null;
+  try {
+    previous = fsSync.existsSync(sessionStatePath) ? JSON.parse(await fs.readFile(sessionStatePath, "utf-8")) : null;
+  } catch {
+    previous = null;
+  }
+  const latestRecovery = await readLatestRecoveryPoint();
+  return {
+    crashed: Boolean(previous?.active && latestRecovery),
+    lastSavedAt: String(previous?.timestamp || latestRecovery?.timestamp || ""),
+    latestRecovery
+  };
+}
+
+function writeSessionState(active: boolean) {
+  try {
+    fsSync.mkdirSync(userDataDir, { recursive: true });
+    fsSync.writeFileSync(sessionStatePath, JSON.stringify({ active, timestamp: new Date().toISOString() }, null, 2) + "\n", "utf-8");
+  } catch {
+    // Session markers are recovery helpers only; failure should not block app startup/shutdown.
+  }
 }
 
 async function templatePackRows(): Promise<TemplatePack[]> {
@@ -2055,11 +2270,15 @@ function checkAssets(text: string, projectPath: string | null) {
   return Object.entries(assets).map(([key, rawValue]) => {
     const value = String(rawValue);
     const resolved = path.isAbsolute(value) ? value : path.resolve(projectDir, value);
+    const exists = fsSync.existsSync(resolved);
+    const stat = exists ? fsSync.statSync(resolved) : null;
     return {
       key,
       path: resolved,
-      exists: fsSync.existsSync(resolved),
-      type: mediaType(resolved)
+      exists,
+      type: mediaType(resolved),
+      modifiedMs: stat?.mtimeMs || 0,
+      fileSize: stat?.size || 0
     };
   });
 }
@@ -2104,11 +2323,117 @@ async function recordHistorySnapshot(projectPath: string | null, oldText: string
     id: versionId,
     timestamp: new Date().toISOString(),
     projectPath: path.resolve(targetPath),
+    name: String(summary.name || summary.summary || "Restore point"),
     summary: "AI plan applied",
     ...summary
   };
   await fs.writeFile(path.join(versionDir, "change_summary.json"), JSON.stringify(changeSummary, null, 2) + "\n", "utf-8");
   return changeSummary;
+}
+
+function historyVersionDir(projectPath: string, versionId: string) {
+  return path.join(path.dirname(projectPath), ".ave_history", versionId);
+}
+
+async function duplicateHistoryVersion(projectPath: string, versionId: string) {
+  const versionDir = historyVersionDir(projectPath, versionId);
+  const sourcePath = path.join(versionDir, "new_project.json");
+  if (!fsSync.existsSync(sourcePath)) throw new Error(`Version ${versionId} is missing its project snapshot.`);
+  const text = await fs.readFile(sourcePath, "utf-8");
+  const targetDir = path.join(generatedDir, `version-${safeAssetKey(versionId)}-${Date.now()}`);
+  const targetPath = path.join(targetDir, "project.json");
+  await fs.mkdir(targetDir, { recursive: true });
+  await fs.writeFile(targetPath, text, "utf-8");
+  await addRecent(targetPath);
+  return readProjectFile(targetPath);
+}
+
+async function compareHistoryVersion(projectPath: string, versionId: string) {
+  const versionDir = historyVersionDir(projectPath, versionId);
+  const oldPath = path.join(versionDir, "old_project.json");
+  const newPath = path.join(versionDir, "new_project.json");
+  if (!fsSync.existsSync(oldPath) || !fsSync.existsSync(newPath)) throw new Error(`Version ${versionId} cannot be compared.`);
+  const oldText = await fs.readFile(oldPath, "utf-8");
+  const newText = await fs.readFile(newPath, "utf-8");
+  const oldProject = JSON.parse(oldText);
+  const newProject = JSON.parse(newText);
+  const oldTimeline = Array.isArray(oldProject.timeline) ? oldProject.timeline : [];
+  const newTimeline = Array.isArray(newProject.timeline) ? newProject.timeline : [];
+  const oldAssets = oldProject.assets && typeof oldProject.assets === "object" ? Object.keys(oldProject.assets).length : 0;
+  const newAssets = newProject.assets && typeof newProject.assets === "object" ? Object.keys(newProject.assets).length : 0;
+  const oldDuration = projectDurationSeconds(oldProject);
+  const newDuration = projectDurationSeconds(newProject);
+  return {
+    versionId,
+    old: { scenes: oldTimeline.length, assets: oldAssets, duration: oldDuration },
+    new: { scenes: newTimeline.length, assets: newAssets, duration: newDuration },
+    changes: [
+      `Scenes: ${oldTimeline.length} -> ${newTimeline.length}`,
+      `Assets: ${oldAssets} -> ${newAssets}`,
+      `Duration: ${oldDuration.toFixed(1)}s -> ${newDuration.toFixed(1)}s`
+    ],
+    oldText,
+    newText
+  };
+}
+
+function projectDurationSeconds(project: { project?: Record<string, unknown>; timeline?: Array<Record<string, unknown>> }) {
+  const explicit = Number(project.project?.duration || 0);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  return Math.max(0, ...(project.timeline || []).map((scene) => Number(scene.start || 0) + Number(scene.duration || 0)));
+}
+
+function projectHealthCheck(text: string, projectPath: string | null) {
+  const issues: Array<{ id: string; severity: "error" | "warning" | "info"; message: string; suggestion: string }> = [];
+  let data: any = null;
+  try {
+    data = JSON.parse(text);
+  } catch (error) {
+    issues.push({
+      id: "corrupt_json",
+      severity: "error",
+      message: `Timeline JSON is corrupt: ${error instanceof Error ? error.message : String(error)}`,
+      suggestion: "Use Repair JSON or restore a previous version."
+    });
+  }
+  if (!data) {
+    return { ready: false, score: 0, checkedAt: new Date().toISOString(), issues, assets: [], failedRenders: renderQueue.filter((job) => job.status === "failed").length };
+  }
+  let assets: ReturnType<typeof checkAssets> = [];
+  try {
+    assets = checkAssets(text, projectPath);
+  } catch {
+    assets = [];
+  }
+  for (const asset of assets) {
+    if (!asset.exists) {
+      issues.push({ id: `missing_${asset.key}`, severity: "error", message: `Missing asset: ${asset.key}`, suggestion: `Relink ${asset.path}` });
+    } else if (asset.type === "unknown") {
+      issues.push({ id: `unsupported_${asset.key}`, severity: "warning", message: `Unsupported or unknown media type: ${asset.key}`, suggestion: "Transcode or replace this asset before export." });
+    }
+  }
+  const timeline = Array.isArray(data.timeline) ? data.timeline : [];
+  if (!timeline.length) issues.push({ id: "empty_timeline", severity: "warning", message: "Timeline has no scenes.", suggestion: "Generate or add at least one scene." });
+  timeline.forEach((scene: Record<string, unknown>, index: number) => {
+    const duration = Number(scene.duration || 0);
+    const start = Number(scene.start || 0);
+    if (!Number.isFinite(start) || start < 0) issues.push({ id: `bad_start_${index}`, severity: "error", message: `Scene ${scene.id || index + 1} has an invalid start time.`, suggestion: "Repair JSON or reset the scene start." });
+    if (!Number.isFinite(duration) || duration <= 0) issues.push({ id: `bad_duration_${index}`, severity: "error", message: `Scene ${scene.id || index + 1} has an invalid duration.`, suggestion: "Set a positive scene duration." });
+    const layers = Array.isArray(scene.layers) ? scene.layers : [];
+    if (!layers.length) issues.push({ id: `empty_scene_${index}`, severity: "info", message: `Scene ${scene.id || index + 1} has no layers.`, suggestion: "Add media, text, captions, or intentionally mark it as a spacer." });
+  });
+  const failedRenders = renderQueue.filter((job) => job.status === "failed").length;
+  if (failedRenders) issues.push({ id: "failed_renders", severity: "warning", message: `${failedRenders} render job(s) failed this session.`, suggestion: "Open render logs before final export." });
+  const score = Math.max(0, 100 - issues.reduce((sum, issue) => sum + (issue.severity === "error" ? 24 : issue.severity === "warning" ? 10 : 3), 0));
+  return {
+    ready: !issues.some((issue) => issue.severity === "error"),
+    score,
+    checkedAt: new Date().toISOString(),
+    issues,
+    assets,
+    failedRenders,
+    sceneCount: timeline.length
+  };
 }
 
 async function readPlugins() {

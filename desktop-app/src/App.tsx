@@ -1,5 +1,6 @@
 import Editor, { OnMount } from "@monaco-editor/react";
 import {
+  Bell,
   Bot,
   Captions,
   CheckCircle2,
@@ -7,23 +8,33 @@ import {
   Clock,
   CircleHelp,
   Download,
+  Eye,
   FileJson,
+  FileText,
   FolderOpen,
   Image,
   Import,
   Keyboard,
   LayoutTemplate,
   ListVideo,
+  Maximize2,
+  Mic,
   MonitorPlay,
+  MoreVertical,
+  Music,
   Pause,
+  Pencil,
   Play,
   Plus,
   RefreshCw,
+  RefreshCcw,
   Redo2,
   Save,
   Scissors,
+  Search,
   Settings,
   Sparkles,
+  Trash2,
   Undo2,
   Video,
   Wand2,
@@ -31,7 +42,7 @@ import {
   ZoomIn,
   ZoomOut
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   addAssetLayerToScene,
   addAssetToFirstScene,
@@ -51,6 +62,7 @@ import {
   PreviewRegenerateAction,
   PreviewReviewMarker,
   previewExportReadiness,
+  LayerData,
   ProjectData,
   regeneratePreviewSection,
   restorePreviewVersion,
@@ -69,6 +81,7 @@ type Tab =
   | "aiStudio"
   | "captionsMode"
   | "templatesMode"
+  | "reviewMode"
   | "exportMode"
   | "diagnostics"
   | "beginner"
@@ -80,20 +93,46 @@ type Tab =
   | "storyboard"
   | "workflow"
   | "product";
+
+type TimelineTrackId = "main" | "audio" | "captions" | "broll" | "graphics" | "effects" | "ai";
+
+type TimelineTrackState = Record<TimelineTrackId, {
+  locked: boolean;
+  hidden: boolean;
+  muted?: boolean;
+  solo?: boolean;
+}>;
 type AppModal =
   | "import"
   | "ai"
   | "aiReview"
   | "templates"
+  | "templateCustomizer"
   | "captionStyle"
   | "export"
   | "renderProgress"
   | "errorRecovery"
+  | "recoveryPrompt"
+  | "versionCompare"
+  | "onboarding"
+  | "shortcuts"
+  | "workspace"
   | "settings"
   | "help"
   | "json"
   | "logs"
   | null;
+type FinalReviewStatus = "pending" | "approved" | "needs_changes";
+type FinalReviewCheck = {
+  id: string;
+  title: string;
+  detail: string;
+  severity: "pass" | "info" | "warning" | "error";
+  category: string;
+  suggestion?: string;
+  sceneId?: string;
+  time?: number;
+};
 type RenderJob = {
   runId: string;
   label: string;
@@ -114,7 +153,7 @@ type GenerationReviewState = {
   reasoning?: string;
 };
 type PendingAiPlan = {
-  source: "quick" | "prompt" | "youtubeShort" | "content" | "director";
+  source: "quick" | "prompt" | "youtubeShort" | "content" | "director" | "template";
   title: string;
   prompt: string;
   text: string;
@@ -138,6 +177,19 @@ type BeginnerTemplateCard = {
   platform: string;
   pacing: string;
   captionStyle: string;
+};
+type TemplateCustomizerState = {
+  key: string;
+  name: string;
+  platform: string;
+  duration: number;
+  captionStyle: string;
+  pacing: string;
+  transitionStyle: string;
+  musicIntensity: string;
+  introOutroStyle: string;
+  applyBranding: boolean;
+  source: "beginner" | "json";
 };
 type BeginnerFormState = {
   quickPrompt: string;
@@ -203,6 +255,62 @@ type ProcessingState = {
   reasoning: string[];
   workers: ProcessingWorker[];
 };
+type ManagedTaskKind =
+  | "ai_analysis"
+  | "caption_generation"
+  | "audio_transcription"
+  | "render_export"
+  | "thumbnail_generation"
+  | "media_import"
+  | "proxy_generation"
+  | "url_download"
+  | "project_io"
+  | "diagnostics";
+type ManagedTaskStatus = "queued" | "running" | "paused" | "completed" | "failed" | "canceled" | "warning";
+type ManagedTask = {
+  id: string;
+  kind: ManagedTaskKind;
+  label: string;
+  stage: string;
+  status: ManagedTaskStatus;
+  progress: number;
+  etaSeconds?: number;
+  currentAsset?: string;
+  currentScene?: string;
+  cpuPercent?: number;
+  gpuPercent?: number;
+  warnings?: string[];
+  errors?: string[];
+  canPause?: boolean;
+  canResume?: boolean;
+  canCancel?: boolean;
+  runId?: string;
+  detail?: string;
+  startedAt: number;
+  updatedAt: number;
+  completedAt?: number;
+};
+type NotificationKind = "info" | "success" | "warning" | "error";
+type NotificationAction = "renderProgress" | "aiReview" | "captions" | "assets" | "export" | "settings" | "diagnostics";
+type AppNotification = {
+  id: string;
+  title: string;
+  message: string;
+  kind: NotificationKind;
+  time: string;
+  read: boolean;
+  action?: NotificationAction;
+  detail?: string;
+};
+type SystemMetrics = {
+  cpuPercent: number;
+  gpuPercent: number;
+  memoryUsedMb: number;
+  memoryTotalMb: number;
+  gpuProcessActive: boolean;
+  gpuMode: string;
+  sampledAt: number;
+};
 type CollaborationMessage = {
   role: "user" | "assistant";
   text: string;
@@ -219,6 +327,7 @@ type ProactiveSuggestion = {
   command?: string;
   sceneId?: string;
   time?: number;
+  duration?: number;
 };
 type BackgroundImprovement = {
   id: string;
@@ -285,6 +394,26 @@ type FinalPreflightReport = {
   scores?: Record<string, number>;
   summary?: Record<string, unknown>;
 };
+type ExportWarning = {
+  id: string;
+  title: string;
+  message: string;
+  suggestion: string;
+  severity: "error" | "warning" | "info";
+};
+type CaptionWorkflowEntry = {
+  id: string;
+  sceneId: string;
+  sceneIndex: number;
+  layerIndex: number;
+  itemIndex: number | null;
+  type: string;
+  text: string;
+  localStart: number;
+  absoluteStart: number;
+  duration: number;
+  layer: LayerData;
+};
 type MonacoInstance = Parameters<OnMount>[1];
 
 const templateLabels: Record<string, string> = {
@@ -299,11 +428,26 @@ const templateLabels: Record<string, string> = {
 };
 
 const defaultUiSettings: AppSettings = {
-  theme: "graphite",
+  theme: "aegis",
   autosave: true,
-  autosaveIntervalSeconds: 45,
+  autosaveIntervalSeconds: 120,
   previewTimeSeconds: 1,
-  keyboardShortcuts: true
+  keyboardShortcuts: true,
+  onboardingComplete: false,
+  defaultWorkflow: "quick",
+  defaultPlatform: "youtube_shorts",
+  defaultStyle: "cinematic",
+  defaultExportFolder: null,
+  beginnerTips: true,
+  workspacePreset: "editing",
+  panelDock: "standard",
+  uiScale: "medium",
+  accentColor: "#6db5a5",
+  leftRailWidth: 260,
+  rightRailWidth: 360,
+  leftRailOpen: true,
+  rightRailOpen: true,
+  monitorPositions: {}
 };
 
 const beginnerTemplates: BeginnerTemplateCard[] = [
@@ -346,12 +490,189 @@ function templateNameFromKey(templateKey: string) {
   return beginnerTemplates.find((template) => template.key === templateKey)?.name || templateKey.replace(/_/g, " ");
 }
 
+function presetForOnboardingPlatform(platform: string) {
+  const value = platform.toLowerCase();
+  if (value.includes("tiktok")) return "tiktok_reels";
+  if (value.includes("reel") || value.includes("instagram")) return "instagram_reels";
+  if (value.includes("short")) return "shorts";
+  return "youtube_1080p";
+}
+
+function outputPathFromDefaultFolder(folder: string | null | undefined, projectTitle: string, quality: "preview" | "final", format: string) {
+  if (!folder) return null;
+  const cleanFolder = folder.replace(/[\\/]+$/, "");
+  if (!cleanFolder) return null;
+  const sep = cleanFolder.includes("\\") ? "\\" : "/";
+  const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12);
+  const baseName = `${projectTitle || "automatic-video"}-${quality}-${stamp}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 72) || `automatic-video-${quality}`;
+  return `${cleanFolder}${sep}${baseName}.${format || "mp4"}`;
+}
+
+function templateCustomizerFromKey(templateKey: string, jsonTemplates: string[] = []): TemplateCustomizerState {
+  const beginner = beginnerTemplates.find((template) => template.key === templateKey);
+  if (beginner) {
+    const defaults = templateQuickDefaults(beginner.key, beginner.platform);
+    return {
+      key: beginner.key,
+      name: beginner.name,
+      platform: normalizeTemplatePlatform(beginner.platform),
+      duration: defaults.duration,
+      captionStyle: beginner.captionStyle,
+      pacing: beginner.pacing,
+      transitionStyle: inferTemplateTransition(beginner),
+      musicIntensity: inferTemplateMusicIntensity(beginner),
+      introOutroStyle: inferTemplateIntroOutro(beginner),
+      applyBranding: /product|promo|saas|cyber|trailer/i.test(beginner.name),
+      source: "beginner"
+    };
+  }
+  const fallbackKey = jsonTemplates.includes(templateKey) ? templateKey : templateKey;
+  return {
+    key: fallbackKey,
+    name: templateLabels[fallbackKey] || friendlyPresetName(fallbackKey),
+    platform: "youtube",
+    duration: templateKey === "tiktok_reels_short" ? 24 : templateKey === "youtube_intro" ? 8 : 30,
+    captionStyle: /lyric|tutorial|meme/i.test(templateKey) ? "Large readable captions" : "Clean lower thirds",
+    pacing: /gaming|meme|tiktok/i.test(templateKey) ? "Fast cuts" : "Balanced",
+    transitionStyle: /gaming|meme/i.test(templateKey) ? "flash cuts" : "crossfade",
+    musicIntensity: /gaming|meme|tiktok/i.test(templateKey) ? "high" : "medium",
+    introOutroStyle: /intro/i.test(templateKey) ? "logo reveal" : "title card + CTA",
+    applyBranding: /product|intro|tutorial/i.test(templateKey),
+    source: "json"
+  };
+}
+
+function formFromTemplateCustomizer(customizer: TemplateCustomizerState, current: BeginnerFormState): BeginnerFormState {
+  const beginner = beginnerTemplates.find((template) => template.key === customizer.key);
+  const goal = current.goal.trim() || `Create a polished ${customizer.name} video.`;
+  const details = [
+    current.vibe,
+    customizer.captionStyle,
+    customizer.pacing,
+    customizer.transitionStyle,
+    `${customizer.musicIntensity} music`,
+    customizer.introOutroStyle,
+    customizer.applyBranding ? "with branding/logo" : ""
+  ].filter(Boolean).join(" ");
+  return {
+    ...current,
+    template: beginner?.key || customizer.key,
+    targetPlatform: customizer.platform,
+    duration: customizer.duration,
+    vibe: details,
+    goal,
+    quickPrompt: current.quickPrompt.trim() || `${goal} Use ${customizer.name}, ${details}, and keep the edit reviewable before applying.`
+  };
+}
+
+function templatePreviewSummary(customizer: TemplateCustomizerState) {
+  return [
+    `${customizer.name} is staged as a review-first template.`,
+    `Platform: ${templatePlatformLabel(customizer.platform)}.`,
+    `Duration: about ${customizer.duration}s.`,
+    `Captions: ${customizer.captionStyle}.`,
+    `Pacing: ${customizer.pacing}.`,
+    `Transitions: ${customizer.transitionStyle}.`,
+    `Music intensity: ${customizer.musicIntensity}.`,
+    "Applying this template will generate a Template Plan Review before the timeline changes."
+  ].join("\n");
+}
+
+function normalizeTemplatePlatform(platform: string) {
+  const value = platform.toLowerCase();
+  if (value.includes("short")) return "shorts";
+  if (value.includes("tiktok")) return "tiktok";
+  if (value.includes("reel") || value.includes("instagram")) return "instagram_reels";
+  if (value.includes("square")) return "square";
+  return "youtube";
+}
+
+function templatePlatformLabel(platform: string) {
+  const labels: Record<string, string> = {
+    shorts: "YouTube Shorts",
+    tiktok: "TikTok",
+    instagram_reels: "Instagram Reels",
+    youtube: "YouTube normal video",
+    square: "Square social"
+  };
+  return labels[platform] || friendlyPresetName(platform);
+}
+
+function inferTemplateTransition(template: BeginnerTemplateCard) {
+  const value = `${template.name} ${template.pacing}`.toLowerCase();
+  if (/gaming|hype|trend|tiktok/.test(value)) return "fast cuts";
+  if (/cinematic|premium|trailer|product/.test(value)) return "smooth cinematic";
+  if (/tutorial|educational|walkthrough/.test(value)) return "clean cuts";
+  return "crossfade";
+}
+
+function inferTemplateMusicIntensity(template: BeginnerTemplateCard) {
+  const value = `${template.name} ${template.pacing}`.toLowerCase();
+  if (/gaming|hype|tiktok|trend/.test(value)) return "high";
+  if (/tutorial|educational|podcast|minimal/.test(value)) return "low";
+  return "medium";
+}
+
+function inferTemplateIntroOutro(template: BeginnerTemplateCard) {
+  const value = template.name.toLowerCase();
+  if (/product|promo|saas|cyber/.test(value)) return "logo reveal + CTA";
+  if (/tutorial|walkthrough|educational/.test(value)) return "step title + recap";
+  if (/gaming|short|tiktok/.test(value)) return "hook title + quick CTA";
+  return "cinematic title + fadeout";
+}
+
+function categoryForTemplate(name: string) {
+  const value = name.toLowerCase();
+  if (/short|youtube intro/.test(value)) return "YouTube Shorts";
+  if (/tiktok/.test(value)) return "TikTok";
+  if (/reel|instagram/.test(value)) return "Instagram Reels";
+  if (/gaming/.test(value)) return "Gaming Clips";
+  if (/podcast/.test(value)) return "Podcast Clips";
+  if (/educational|education/.test(value)) return "Educational";
+  if (/product|promo|saas|cyber/.test(value)) return "Product Promo";
+  if (/cinematic|trailer/.test(value)) return "Cinematic";
+  if (/meme|reaction/.test(value)) return "Meme / Reaction";
+  if (/tutorial|walkthrough/.test(value)) return "Tutorial";
+  return "Product Promo";
+}
+
+function requiredMediaForTemplate(name: string) {
+  const value = name.toLowerCase();
+  if (/slideshow/.test(value)) return "image folder";
+  if (/lyric|podcast/.test(value)) return "audio";
+  if (/product|promo|saas|cyber/.test(value)) return "video + logo optional";
+  if (/gaming|meme|reaction|short|tiktok|reel/.test(value)) return "video";
+  if (/tutorial|educational|walkthrough/.test(value)) return "screen recording";
+  return "video or images";
+}
+
 function friendlyPresetName(presetValue: string) {
   return presetValue
     .split("_")
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function workspacePresetSettings(settings: AppSettings, preset: WorkspacePreset): AppSettings {
+  const base = { ...settings, workspacePreset: preset };
+  const presets: Record<WorkspacePreset, Partial<AppSettings>> = {
+    beginner: { panelDock: "preview_focus", leftRailWidth: 248, rightRailWidth: 300, leftRailOpen: false, rightRailOpen: false, uiScale: "large" },
+    ai: { panelDock: "standard", leftRailWidth: 270, rightRailWidth: 390, leftRailOpen: true, rightRailOpen: true, uiScale: "medium" },
+    editing: { panelDock: "standard", leftRailWidth: 280, rightRailWidth: 370, leftRailOpen: true, rightRailOpen: true, uiScale: "medium" },
+    captions: { panelDock: "standard", leftRailWidth: 250, rightRailWidth: 410, leftRailOpen: true, rightRailOpen: true, uiScale: "medium" },
+    export: { panelDock: "preview_focus", leftRailWidth: 230, rightRailWidth: 420, leftRailOpen: false, rightRailOpen: true, uiScale: "medium" },
+    minimal: { panelDock: "preview_focus", leftRailWidth: 220, rightRailWidth: 300, leftRailOpen: false, rightRailOpen: false, uiScale: "small" }
+  };
+  return { ...base, ...presets[preset] };
+}
+
+function tabForWorkspacePreset(preset: WorkspacePreset): Tab {
+  if (preset === "beginner") return "beginner";
+  if (preset === "ai") return "aiStudio";
+  if (preset === "captions") return "captionsMode";
+  if (preset === "export") return "exportMode";
+  return "editor";
 }
 
 function workflowContextFor({
@@ -464,6 +785,13 @@ function workflowContextFor({
         title: "Beginner Auto Video",
         description: "Use media, a template, and simple product details to generate the JSON edit behind the scenes.",
         meta: [beginnerForm.targetPlatform, `${beginnerForm.duration}s`, beginnerForm.vibe || "Default vibe"]
+      };
+    case "reviewMode":
+      return {
+        breadcrumbs: ["Review", "Final Cut"],
+        title: "Final Review",
+        description: "Watch the final cut, run quality checks, leave timestamped notes, and approve the edit before export.",
+        meta: [duration, preflightBlockingCount ? `${preflightBlockingCount} blocking issues` : `${preflightWarningCount} warnings`, preset]
       };
     case "exportMode":
       return {
@@ -578,6 +906,8 @@ function App() {
   const [previewScope, setPreviewScope] = useState<"full" | "scene">("full");
   const [qualityReport, setQualityReport] = useState<Record<string, unknown> | null>(null);
   const [finalPreflightReport, setFinalPreflightReport] = useState<FinalPreflightReport | null>(null);
+  const [finalReviewStatus, setFinalReviewStatus] = useState<FinalReviewStatus>("pending");
+  const [watchFinalCutOpen, setWatchFinalCutOpen] = useState(false);
   const [manifestReport, setManifestReport] = useState<Record<string, unknown> | null>(null);
   const [repurposeReport, setRepurposeReport] = useState<Record<string, unknown> | null>(null);
   const [postingPackageReport, setPostingPackageReport] = useState<Record<string, unknown> | null>(null);
@@ -587,6 +917,9 @@ function App() {
   const [postExportNote, setPostExportNote] = useState<Record<string, unknown> | null>(null);
   const [templatePacks, setTemplatePacks] = useState<TemplatePack[]>([]);
   const [recoveryPoints, setRecoveryPoints] = useState<RecoveryPoint[]>([]);
+  const [startupRecovery, setStartupRecovery] = useState<StartupRecoveryState | null>(null);
+  const [projectHealth, setProjectHealth] = useState<ProjectHealthReport | null>(null);
+  const [versionComparison, setVersionComparison] = useState<VersionComparison | null>(null);
   const [socialTargets, setSocialTargets] = useState(["youtube_shorts", "tiktok", "instagram_reels", "youtube_landscape", "discord", "x_twitter"]);
   const [hardeningStatus, setHardeningStatus] = useState<HardeningStatus | null>(null);
   const [workflowDashboard, setWorkflowDashboard] = useState<Record<string, unknown> | null>(null);
@@ -601,15 +934,25 @@ function App() {
   const [frictionReport, setFrictionReport] = useState<FrictionReport | null>(null);
   const [adaptiveMemory, setAdaptiveMemory] = useState<AdaptiveWorkflowMemory | null>(null);
   const [processing, setProcessing] = useState<ProcessingState>(idleProcessingState);
+  const [localTasks, setLocalTasks] = useState<ManagedTask[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
   const [activityFeed, setActivityFeed] = useState<ProcessingActivity[]>([]);
   const [processingCollapsed, setProcessingCollapsed] = useState(true);
+  const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
+  const [renderActivityMinimized, setRenderActivityMinimized] = useState(false);
   const [assistantDraft, setAssistantDraft] = useState("");
   const [assistantMessages, setAssistantMessages] = useState<CollaborationMessage[]>([]);
   const [proactiveMuted, setProactiveMuted] = useState(false);
+  const [ignoredSuggestedEditIds, setIgnoredSuggestedEditIds] = useState<string[]>([]);
+  const [savedSuggestedEdits, setSavedSuggestedEdits] = useState<ProactiveSuggestion[]>([]);
+  const [disabledSuggestionTypes, setDisabledSuggestionTypes] = useState<string[]>([]);
   const [leftRailOpen, setLeftRailOpen] = useState(true);
   const [rightRailOpen, setRightRailOpen] = useState(true);
+  const [aiPromptBuilderOpen, setAiPromptBuilderOpen] = useState(false);
   const [backgroundImprovements, setBackgroundImprovements] = useState<BackgroundImprovement[]>([]);
   const [appModal, setAppModal] = useState<AppModal>(null);
+  const [templateCustomizer, setTemplateCustomizer] = useState<TemplateCustomizerState | null>(null);
 
   const parsed = useMemo(() => parseProject(projectText), [projectText]);
   const project = parsed.data;
@@ -617,9 +960,27 @@ function App() {
     () => project ? analyzeProactiveAssistance(project, adaptiveMemory, renderQueueItems, preset, useCache) : emptyProactiveAnalysis,
     [project, adaptiveMemory, renderQueueItems, preset, useCache]
   );
+  const suggestedEdits = useMemo(
+    () => project ? buildSuggestedEdits(project, proactiveAnalysis, assetReport, finalPreflightReport) : [],
+    [project, proactiveAnalysis, assetReport, finalPreflightReport]
+  );
+  const finalReviewChecks = useMemo(
+    () => project ? buildFinalReviewChecks(project, assets, assetReport, finalPreflightReport, preset, exportFormat, qualityReport) : [],
+    [project, assets, assetReport, finalPreflightReport, preset, exportFormat, qualityReport]
+  );
+  const managedTasks = useMemo(
+    () => buildManagedTasks(localTasks, renderQueueItems, processing, systemMetrics),
+    [localTasks, renderQueueItems, processing, systemMetrics]
+  );
   const monacoRef = useRef<MonacoInstance | null>(null);
   const latestProjectRef = useRef({ text: projectText, path: projectPath, preset });
   const lastActivityKeyRef = useRef("");
+  const lastAutosaveTextRef = useRef("");
+  const skippedInitialAutosaveRef = useRef(false);
+  const activeManagedTaskIdRef = useRef<string | null>(null);
+  const managedTaskCounterRef = useRef(0);
+  const missingMediaNotificationRef = useRef("");
+  const updateAvailableNotificationRef = useRef(false);
 
   const configureMonaco = useCallback((monaco: MonacoInstance, schema: Record<string, unknown>) => {
     monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
@@ -648,6 +1009,13 @@ function App() {
     const offComplete = window.ave.onRenderComplete((event) => {
       setPreviewPath(event.outputPath);
       setStatus(event.exitCode === 0 ? (event.packagePath ? `Render complete. Package: ${event.packagePath}` : "Render complete") : "Render failed");
+      addNotification(
+        event.exitCode === 0 ? "Export finished" : "Render failed",
+        event.exitCode === 0 ? (event.packagePath ? `Package ready: ${event.packagePath}` : event.outputPath) : `Check render logs for ${event.runId}.`,
+        event.exitCode === 0 ? "success" : "error",
+        "renderProgress",
+        event.outputPath
+      );
       if (event.exitCode !== 0) {
         void window.ave.logFriction({ event: "failed_export", label: event.runId, outputPath: event.outputPath });
       }
@@ -670,10 +1038,21 @@ function App() {
       setRenderQueueItems(items);
       syncProcessingFromQueue(items);
     });
+    window.ave.startupRecovery().then((state) => {
+      setStartupRecovery(state);
+      if (state.crashed && state.latestRecovery) {
+        setRecoveryPoints([state.latestRecovery]);
+        setAppModal("recoveryPrompt");
+        setStatus("Recover unsaved project?");
+      }
+    }).catch(() => undefined);
     window.ave.listPlugins().then(setPlugins).catch(() => setPlugins([]));
     window.ave.getSettings().then((value) => {
       setSettings(value);
       setPreviewTimeSeconds(value.previewTimeSeconds);
+      applyWorkspaceLayout(value);
+      applyOnboardingDefaults(value);
+      if (!value.onboardingComplete) setAppModal((current) => current || "onboarding");
     }).catch(() => setSettings(defaultUiSettings));
     window.ave.listTemplatePacks().then(setTemplatePacks).catch(() => setTemplatePacks([]));
     window.ave.getAdaptiveWorkflowMemory({ text: projectText, projectPath, profile: "Default Creator" })
@@ -696,6 +1075,20 @@ function App() {
       .then(setAssets)
       .catch(() => setAssets([]));
   }, [projectText, projectPath]);
+
+  useEffect(() => {
+    const missing = assets.filter((asset) => !asset.exists);
+    const signature = missing.map((asset) => `${asset.key}:${asset.path}`).sort().join("|");
+    if (!signature || signature === missingMediaNotificationRef.current) return;
+    missingMediaNotificationRef.current = signature;
+    addNotification(
+      "Missing media warning",
+      `${missing.length} asset${missing.length === 1 ? "" : "s"} need relinking before final export.`,
+      "warning",
+      "assets",
+      missing.slice(0, 3).map((asset) => asset.key).join(", ")
+    );
+  }, [assets]);
 
   useEffect(() => {
     if (engine && monacoRef.current) configureMonaco(monacoRef.current, engine.schema);
@@ -724,6 +1117,28 @@ function App() {
   }, [uiMode]);
 
   useEffect(() => {
+    const hasActiveWork = processing.isActive ||
+      renderQueueItems.some((item) => item.status === "queued" || item.status === "running") ||
+      localTasks.some((task) => task.status === "queued" || task.status === "running" || task.status === "paused");
+    if (!hasActiveWork && appModal !== "renderProgress") return;
+    let canceled = false;
+    const refresh = async () => {
+      try {
+        const metrics = await window.ave.systemMetrics();
+        if (!canceled) setSystemMetrics(metrics);
+      } catch {
+        if (!canceled) setSystemMetrics(null);
+      }
+    };
+    void refresh();
+    const interval = window.setInterval(refresh, 1500);
+    return () => {
+      canceled = true;
+      window.clearInterval(interval);
+    };
+  }, [processing.isActive, renderQueueItems, localTasks, appModal]);
+
+  useEffect(() => {
     if (!project || processing.isActive || renderQueueItems.some((item) => item.status === "queued" || item.status === "running")) return;
     const timer = window.setTimeout(() => {
       setBackgroundImprovements(buildBackgroundImprovementQueue(project, adaptiveMemory, proactiveAnalysis));
@@ -735,10 +1150,24 @@ function App() {
     if (!settings.autosave) return;
     const interval = window.setInterval(() => {
       const current = latestProjectRef.current;
-      window.ave.autosaveProject({ text: current.text, projectPath: current.path }).catch(() => undefined);
+      void captureAutosave("autosave", current.text, current.path);
     }, Math.max(10, settings.autosaveIntervalSeconds) * 1000);
     return () => window.clearInterval(interval);
   }, [settings.autosave, settings.autosaveIntervalSeconds]);
+
+  useEffect(() => {
+    if (!settings.autosave || !projectText.trim()) return;
+    if (!skippedInitialAutosaveRef.current) {
+      skippedInitialAutosaveRef.current = true;
+      lastAutosaveTextRef.current = projectText;
+      return;
+    }
+    if (projectText === lastAutosaveTextRef.current) return;
+    const timer = window.setTimeout(() => {
+      void captureAutosave("timeline_change", projectText, projectPath);
+    }, 18000);
+    return () => window.clearTimeout(timer);
+  }, [projectText, projectPath, settings.autosave]);
 
   useEffect(() => {
     if (!settings.keyboardShortcuts) return;
@@ -760,9 +1189,34 @@ function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   });
 
-  const updateProject = useCallback((data: ProjectData) => {
-    setProjectText(formatProject(data));
-  }, []);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("ave.recovery.session", JSON.stringify({
+        updatedAt: new Date().toISOString(),
+        projectPath,
+        pendingAiPlan,
+        generationReview,
+        generationPlanPath,
+        beginnerForm,
+        beginnerSummary,
+        preset,
+        exportFormat,
+        quality,
+        previewSceneId,
+        previewQualityMode,
+        contentMode,
+        contentTone
+      }));
+    } catch {
+      // Local UI session recovery is best-effort; autosave files remain the authoritative recovery path.
+    }
+  }, [projectPath, pendingAiPlan, generationReview, generationPlanPath, beginnerForm, beginnerSummary, preset, exportFormat, quality, previewSceneId, previewQualityMode, contentMode, contentTone]);
+
+  const updateProject = useCallback((data: ProjectData, reason = "timeline_edit") => {
+    const nextText = formatProject(data);
+    if (nextText !== projectText) void captureAutosave(`before_${safeRecoveryReason(reason)}`, projectText, projectPath);
+    setProjectText(nextText);
+  }, [projectText, projectPath]);
 
   const onEditorMount: OnMount = (_editor, monaco) => {
     monacoRef.current = monaco;
@@ -786,7 +1240,167 @@ function App() {
     ].slice(0, 120));
   }
 
+  function addNotification(title: string, message: string, kind: NotificationKind = "info", action?: NotificationAction, detail?: string) {
+    const now = new Date();
+    const key = `${title}|${message}|${kind}`;
+    setNotifications((items) => {
+      if (items[0] && `${items[0].title}|${items[0].message}|${items[0].kind}` === key) return items;
+      return [
+        {
+          id: `${now.getTime()}-${Math.random().toString(16).slice(2)}`,
+          title,
+          message,
+          kind,
+          action,
+          detail,
+          read: false,
+          time: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        },
+        ...items
+      ].slice(0, 60);
+    });
+  }
+
+  function markNotificationsRead() {
+    setNotifications((items) => items.map((item) => ({ ...item, read: true })));
+  }
+
+  function dismissNotification(id: string) {
+    setNotifications((items) => items.filter((item) => item.id !== id));
+  }
+
+  function clearNotifications() {
+    setNotifications([]);
+    setNotificationCenterOpen(false);
+  }
+
+  function openNotificationAction(action?: NotificationAction) {
+    if (!action) return;
+    if (action === "renderProgress") setAppModal("renderProgress");
+    if (action === "aiReview") setAppModal("aiReview");
+    if (action === "captions") {
+      setUiMode("advanced");
+      setActiveTab("captionsMode");
+    }
+    if (action === "assets") {
+      setUiMode("advanced");
+      setActiveTab("assets");
+      setRightRailOpen(true);
+    }
+    if (action === "export") {
+      setUiMode("advanced");
+      setActiveTab("exportMode");
+      setAppModal("export");
+    }
+    if (action === "settings") setAppModal("settings");
+    if (action === "diagnostics") {
+      setUiMode("advanced");
+      setActiveTab("diagnostics");
+    }
+    setNotificationCenterOpen(false);
+    markNotificationsRead();
+  }
+
+  function createManagedTask(kind: ManagedTaskKind, label: string, stage: string, detail?: string) {
+    const id = `task-${Date.now()}-${managedTaskCounterRef.current++}`;
+    const now = Date.now();
+    const task: ManagedTask = {
+      id,
+      kind,
+      label,
+      stage,
+      detail,
+      status: "running",
+      progress: 4,
+      canCancel: true,
+      canPause: false,
+      canResume: false,
+      startedAt: now,
+      updatedAt: now
+    };
+    activeManagedTaskIdRef.current = id;
+    setLocalTasks((tasks) => [task, ...tasks].slice(0, 80));
+    return id;
+  }
+
+  function updateManagedTask(id: string | null, patch: Partial<ManagedTask>) {
+    if (!id) return;
+    setLocalTasks((tasks) => tasks.map((task) => task.id === id
+      ? updateTaskRecord(task, patch)
+      : task
+    ));
+  }
+
+  function finishManagedTask(id: string | null, statusValue: ManagedTaskStatus, stage: string, warnings: string[] = [], errors: string[] = []) {
+    if (!id) return;
+    setLocalTasks((tasks) => tasks.map((task) => {
+      if (task.id !== id) return task;
+      if (task.status === "canceled") return { ...task, completedAt: Date.now(), updatedAt: Date.now() };
+      return {
+        ...task,
+        status: statusValue,
+        stage,
+        progress: statusValue === "completed" ? 100 : task.progress,
+        warnings: [...(task.warnings || []), ...warnings],
+        errors: [...(task.errors || []), ...errors],
+        canCancel: false,
+        canPause: false,
+        canResume: false,
+        completedAt: Date.now(),
+        updatedAt: Date.now()
+      };
+    }));
+    if (activeManagedTaskIdRef.current === id) activeManagedTaskIdRef.current = null;
+  }
+
+  async function pauseManagedTask(task: ManagedTask) {
+    if (task.runId || task.kind === "render_export") {
+      setRenderQueueItems(await window.ave.pauseRenderQueue());
+      pushActivity("Render queue paused", "warning", task.label);
+      return;
+    }
+    updateManagedTask(task.id, { status: "paused", stage: "Paused by user", canResume: true, canPause: false });
+    pushActivity(`Paused ${task.label}`, "warning");
+  }
+
+  async function resumeManagedTask(task: ManagedTask) {
+    if (task.runId || task.kind === "render_export") {
+      setRenderQueueItems(await window.ave.resumeRenderQueue());
+      pushActivity("Render queue resumed", "info", task.label);
+      return;
+    }
+    updateManagedTask(task.id, { status: "running", stage: "Resumed", canResume: false, canPause: false });
+    pushActivity(`Resumed ${task.label}`, "info");
+  }
+
+  async function cancelManagedTask(task: ManagedTask) {
+    if (task.runId) {
+      setRenderQueueItems(await window.ave.cancelRenderJob({ runId: task.runId }));
+      pushActivity("Canceled render job", "warning", task.label);
+      return;
+    }
+    updateManagedTask(task.id, {
+      status: "canceled",
+      stage: "Cancel requested",
+      canCancel: false,
+      canPause: false,
+      canResume: false,
+      warnings: [...(task.warnings || []), "The current engine call may finish, but this task is no longer treated as active."]
+    });
+    if (activeManagedTaskIdRef.current === task.id) {
+      activeManagedTaskIdRef.current = null;
+      setProcessing((current) => ({ ...current, isActive: false, currentStage: "Canceled", activeTask: task.label }));
+    }
+    pushActivity(`Canceled ${task.label}`, "warning");
+  }
+
+  function clearCompletedManagedTasks() {
+    setLocalTasks((tasks) => tasks.filter((task) => ["queued", "running", "paused"].includes(task.status)));
+    pushActivity("Cleared completed background tasks", "info");
+  }
+
   function beginProcessing(label: string, stage = "Starting", detail?: string) {
+    createManagedTask(inferTaskKind(label, stage), label, stage, detail);
     setProcessingCollapsed(uiMode === "beginner");
     setProcessing({
       isActive: true,
@@ -810,10 +1424,21 @@ function App() {
       isActive: patch.isActive ?? current.isActive,
       progress: Math.max(current.progress, Number(patch.progress ?? current.progress))
     }));
+    updateManagedTask(activeManagedTaskIdRef.current, {
+      stage: patch.currentStage || undefined,
+      progress: typeof patch.progress === "number" ? patch.progress : undefined,
+      etaSeconds: patch.etaSeconds,
+      currentAsset: patch.currentAsset,
+      currentScene: patch.currentScene,
+      status: patch.isActive === false ? "completed" : "running",
+      cpuPercent: systemMetrics?.cpuPercent,
+      gpuPercent: systemMetrics?.gpuPercent
+    });
     if (activity) pushActivity(activity, kind, detail);
   }
 
   function finishProcessing(label: string, kind: ActivityKind = "success") {
+    const taskId = activeManagedTaskIdRef.current;
     setProcessing((current) => ({
       ...current,
       isActive: false,
@@ -823,8 +1448,94 @@ function App() {
       etaSeconds: kind === "success" ? 0 : current.etaSeconds,
       workers: current.workers.map((worker) => ({ ...worker, status: kind === "success" ? "complete" : worker.status }))
     }));
+    finishManagedTask(
+      taskId,
+      kind === "success" ? "completed" : kind === "error" ? "failed" : "warning",
+      kind === "success" ? "Complete" : "Needs attention",
+      kind === "warning" ? [label] : [],
+      kind === "error" ? [label] : []
+    );
     if (kind !== "info") setProcessingCollapsed(true);
     pushActivity(label, kind);
+  }
+
+  async function captureAutosave(reason = "autosave", textOverride = projectText, pathOverride = projectPath) {
+    if (!textOverride.trim()) return null;
+    try {
+      const point = await window.ave.autosaveProject({ text: textOverride, projectPath: pathOverride, reason });
+      if (point) {
+        lastAutosaveTextRef.current = textOverride;
+        setRecoveryPoints((points) => [point, ...points.filter((item) => item.path !== point.path)].slice(0, 12));
+        pushActivity(`Recovery point saved: ${reason.replace(/_/g, " ")}`, "success", point.timestamp || point.path);
+      }
+      return point;
+    } catch {
+      pushActivity("Autosave failed", "warning", reason);
+      return null;
+    }
+  }
+
+  async function recordProjectVersion(name: string, summary: Record<string, unknown>, nextText = projectText, oldText = projectText, pathOverride = projectPath) {
+    const version = await window.ave.recordHistory({
+      projectPath: pathOverride,
+      oldText,
+      newText: nextText,
+      summary: {
+        name,
+        summary: name,
+        ...summary,
+        timestamp: new Date().toISOString(),
+        reversible: true
+      }
+    });
+    const nextPath = typeof version?.projectPath === "string" ? version.projectPath : pathOverride;
+    if (nextPath) setHistory(await window.ave.listHistory({ projectPath: nextPath }));
+    return version;
+  }
+
+  async function commitProjectTextChange(name: string, nextText: string, summary: Record<string, unknown> = {}, nextPathOverride = projectPath) {
+    if (!nextText.trim()) return null;
+    if (nextText === projectText) {
+      setProjectText(nextText);
+      return null;
+    }
+    await captureAutosave(`before_${safeRecoveryReason(name)}`, projectText, nextPathOverride);
+    const version = await recordProjectVersion(`Before ${name}`, {
+      source: "safe_project_mutation",
+      safeEditRule: "restore_point_before_project_change",
+      ...summary
+    }, nextText, projectText, nextPathOverride);
+    const nextPath = typeof version?.projectPath === "string" ? version.projectPath : nextPathOverride;
+    if (!projectPath && nextPath) setProjectPath(nextPath);
+    setProjectText(nextText);
+    void captureAutosave(`after_${safeRecoveryReason(name)}`, nextText, nextPath);
+    return version;
+  }
+
+  function safeRecoveryReason(value: string) {
+    return value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "project_change";
+  }
+
+  function restoreLocalSessionState() {
+    try {
+      const raw = window.localStorage.getItem("ave.recovery.session");
+      if (!raw) return;
+      const session = JSON.parse(raw) as Record<string, unknown>;
+      if (session.pendingAiPlan) setPendingAiPlan(session.pendingAiPlan as PendingAiPlan);
+      if (session.generationReview) setGenerationReview(session.generationReview as GenerationReviewState);
+      if (typeof session.generationPlanPath === "string") setGenerationPlanPath(session.generationPlanPath);
+      if (session.beginnerForm) setBeginnerForm(session.beginnerForm as BeginnerFormState);
+      if (session.beginnerSummary) setBeginnerSummary(session.beginnerSummary as Record<string, unknown>);
+      if (typeof session.preset === "string") setPreset(session.preset);
+      if (typeof session.exportFormat === "string") setExportFormat(session.exportFormat as typeof exportFormat);
+      if (session.quality === "preview" || session.quality === "final") setQuality(session.quality);
+      if (typeof session.previewSceneId === "string") setPreviewSceneId(session.previewSceneId);
+      if (typeof session.previewQualityMode === "string") setPreviewQualityMode(session.previewQualityMode);
+      if (typeof session.contentMode === "string") setContentMode(session.contentMode);
+      if (typeof session.contentTone === "string") setContentTone(session.contentTone);
+    } catch {
+      pushActivity("Session UI state could not be restored", "warning");
+    }
   }
 
   function syncProcessingFromRenderLog(line: string) {
@@ -911,6 +1622,34 @@ function App() {
       return;
     } else if (suggestion.action === "smooth_transitions") {
       next = suggestBetterTransitions(next);
+    } else if (suggestion.action === "add_transition_here") {
+      next = suggestBetterTransitions(next);
+    } else if (suggestion.action === "add_zoom") {
+      next = applyZoomSuggestion(next, suggestion.sceneId || next.timeline?.[0]?.id || "", 1.12);
+    } else if (suggestion.action === "add_caption_here") {
+      next = addCaptionSuggestion(next, suggestion.sceneId || sceneAtTime(next, Number(suggestion.time || 0))?.id || next.timeline?.[0]?.id || "");
+    } else if (suggestion.action === "add_hook") {
+      next = replaceFirstSceneText(next, alternateHookText(productNameFromProject(next), "clean_professional", firstTextLayerValue(next)));
+      const firstSceneId = next.timeline?.[0]?.id;
+      if (firstSceneId) next = shortenScene(next, firstSceneId, 0.7);
+    } else if (suggestion.action === "remove_silence") {
+      const time = Number(suggestion.time || 0);
+      const scene = sceneAtTime(next, time) || next.timeline?.[0];
+      if (scene) {
+        const silenceDuration = Math.max(0, Number(suggestion.duration || 0));
+        if (silenceDuration > 0 && Number(scene.duration || 0) > 0.9) {
+          const currentDuration = Number(scene.duration || 0);
+          const trimAmount = Math.min(silenceDuration, Math.max(0, currentDuration - 0.9), currentDuration * 0.7);
+          const factor = Math.max(0.1, (currentDuration - trimAmount) / currentDuration);
+          next = shortenScene(next, scene.id, factor);
+        }
+        next = addPreviewReviewMarker(next, {
+          type: "needs_cut",
+          time,
+          sceneId: scene.id,
+          note: suggestion.detail
+        });
+      }
     } else if (suggestion.action === "reduce_motion") {
       sendCollaborationInstruction("remove excessive motion");
       void recordAdaptiveEvent({ event: "proactive_suggestion_applied", correction: suggestion.action, note: suggestion.title });
@@ -938,6 +1677,24 @@ function App() {
     setStatus(`Applied suggestion: ${suggestion.title}`);
     pushActivity(`Applied proactive suggestion`, "success", suggestion.title);
     void recordAdaptiveEvent({ event: "proactive_suggestion_applied", correction: suggestion.action, note: suggestion.title, duration: project ? totalTimelineDuration(project) : undefined });
+  }
+
+  function ignoreSuggestedEdit(suggestion: ProactiveSuggestion) {
+    setIgnoredSuggestedEditIds((ids) => [...new Set([...ids, suggestion.id])]);
+    setStatus(`Ignored suggestion: ${suggestion.title}`);
+    void recordAdaptiveEvent({ event: "suggested_edit_ignored", correction: suggestion.action, note: suggestion.title });
+  }
+
+  function saveSuggestedEdit(suggestion: ProactiveSuggestion) {
+    setSavedSuggestedEdits((items) => items.some((item) => item.id === suggestion.id) ? items : [...items, suggestion]);
+    setStatus(`Saved suggestion: ${suggestion.title}`);
+    void recordAdaptiveEvent({ event: "suggested_edit_saved", correction: suggestion.action, note: suggestion.title });
+  }
+
+  function disableSuggestionType(action: string) {
+    setDisabledSuggestionTypes((types) => [...new Set([...types, action])]);
+    setStatus(`Disabled suggestion type: ${friendlyPresetName(action)}`);
+    void recordAdaptiveEvent({ event: "suggestion_type_disabled", correction: action });
   }
 
   function applyBackgroundImprovement(improvement: BackgroundImprovement) {
@@ -1065,6 +1822,8 @@ function App() {
     setUiMode("advanced");
     setActiveTab("json");
     setRecent(await window.ave.getRecentProjects());
+    setRecoveryPoints(await window.ave.listRecovery({ projectPath: file.path }));
+    setProjectHealth(null);
   }
 
   async function saveProject() {
@@ -1072,6 +1831,7 @@ function App() {
     setProjectPath(file.path);
     setStatus(`Saved ${file.name}`);
     setRecent(await window.ave.getRecentProjects());
+    await captureAutosave("manual_save", projectText, file.path);
   }
 
   async function saveAs() {
@@ -1080,6 +1840,19 @@ function App() {
     setProjectPath(file.path);
     setStatus(`Saved ${file.name}`);
     setRecent(await window.ave.getRecentProjects());
+    await captureAutosave("manual_save_as", projectText, file.path);
+  }
+
+  async function newProjectSafely(startTab: Tab = "editor") {
+    await captureAutosave("before_new_project", projectText, projectPath);
+    setProjectText(formatProject(blankProject()));
+    setProjectPath(null);
+    setProjectHealth(null);
+    setGenerationReview(null);
+    setPendingAiPlan(null);
+    setUiMode("advanced");
+    setActiveTab(startTab);
+    setStatus("New project started. Previous edit was autosaved.");
   }
 
   async function validate() {
@@ -1092,7 +1865,7 @@ function App() {
     const result = await window.ave.repairJson({ text: projectText });
     setValidation(result);
     if (result.ok && result.text) {
-      setProjectText(result.text);
+      await commitProjectTextChange("JSON repair", result.text, { source: "repair_json" });
       setStatus("JSON repaired");
     } else {
       setStatus("Repair failed");
@@ -1100,15 +1873,154 @@ function App() {
   }
 
   async function createFromTemplate(template: string) {
+    beginProcessing("Template plan", `Preparing ${templateLabels[template] || template}`, "review-first");
     const result = await window.ave.createTemplate({ template });
     if (result.ok && result.text) {
-      setProjectText(result.text);
-      setProjectPath(null);
-      setStatus(`Template loaded: ${templateLabels[template] || template}`);
+      const parsedTemplate = parseProject(result.text).data;
+      const reviewState = reviewFromProjectText(result.text, {}, result.path || null, `Template plan for ${templateLabels[template] || template}. Review scenes, captions, effects, and export settings before applying.`);
+      setPendingAiPlan({
+        source: "template",
+        title: "Template Plan Review",
+        prompt: `Apply template: ${templateLabels[template] || template}`,
+        text: result.text,
+        path: result.path || null,
+        data: { templateKey: template },
+        review: reviewState,
+        preset: parsedTemplate?.exportPreset || parsedTemplate?.project?.exportPreset || preset
+      });
+      setGenerationReview(reviewState);
+      setStatus(`Template plan ready: ${templateLabels[template] || template}`);
+      addNotification("AI plan ready", `Template plan ready: ${templateLabels[template] || template}`, "success", "aiReview", `${reviewState.scenes.length} scenes`);
       setUiMode("advanced");
-      setActiveTab("json");
+      setActiveTab("templatesMode");
+      setAppModal("aiReview");
+      finishProcessing("Template plan ready for review", "success");
     } else {
       setStatus(result.stderr || result.stdout || "Template failed");
+      finishProcessing(result.stderr || result.stdout || "Template failed", "error");
+    }
+  }
+
+  async function generateTemplatePlanFromForm(formToUse: BeginnerFormState) {
+    await productAction("Template Plan", async () => {
+      const quick = beginnerRequestFromForm(formToUse);
+      const templateName = templateNameFromKey(quick.template);
+      updateProcessing({
+        currentStage: "Building template edit plan",
+        activeTask: templateName,
+        progress: 18,
+        currentAsset: quick.mediaFile || quick.imageFolder || quick.assetFolder || undefined
+      }, `Preparing ${templateName}`, "info", "Template changes are staged for review before touching the timeline.");
+      const result = await window.ave.beginnerAutoTemplate({
+        mediaFile: quick.mediaFile,
+        imageFolder: quick.imageFolder,
+        assetFolder: quick.assetFolder,
+        musicPath: quick.musicPath,
+        logoPath: quick.logoPath,
+        targetPlatform: quick.targetPlatform,
+        template: quick.template,
+        productName: quick.productName,
+        goal: quick.goal,
+        keyFeatures: quick.keyFeatures,
+        vibe: quick.vibe,
+        duration: quick.duration,
+        quality: "preview",
+        render: false,
+        cache: true
+      });
+      if (result.ok && result.text) {
+        const sceneCount = parseProject(result.text).data?.timeline?.length || 0;
+        const presetValue = quick.targetPlatform === "youtube" ? "youtube_1080p" : quick.targetPlatform === "tiktok" ? "tiktok_reels" : quick.targetPlatform;
+        const reviewState = reviewFromProjectText(result.text, result.data || {}, result.path || null, `Template plan for ${templateName}. Review the scenes, cuts, captions, effects, and export settings before applying.`);
+        setPendingAiPlan({
+          source: "template",
+          title: "Template Plan Review",
+          prompt: formToUse.quickPrompt || `Apply ${templateName}`,
+          text: result.text,
+          path: result.path || null,
+          data: { ...(result.data || {}), templateKey: quick.template },
+          review: reviewState,
+          preset: presetValue,
+          form: formToUse,
+          renderQuality: "preview"
+        });
+        setGenerationReview(reviewState);
+        setBeginnerSummary(result.data || null);
+        setBeginnerForm(formToUse);
+        setStatus(`Template plan ready: ${templateName}`);
+        addNotification("AI plan ready", `Template plan ready: ${templateName}`, "success", "aiReview", `${sceneCount} scenes`);
+        updateProcessing({
+          currentStage: "Template plan ready",
+          activeTask: "Review before applying to timeline",
+          progress: 100,
+          currentScene: `${sceneCount} scenes generated`
+        }, `Built ${sceneCount} proposed scenes`, "success", "The current timeline has not been overwritten.");
+        setUiMode("advanced");
+        setActiveTab("templatesMode");
+        setAppModal("aiReview");
+      } else {
+        setStatus(result.stderr || result.stdout || "Template plan failed");
+      }
+    });
+  }
+
+  function openTemplateCustomizer(templateKey: string, duplicate = false) {
+    const customizer = templateCustomizerFromKey(templateKey, engine?.templates || []);
+    setTemplateCustomizer({
+      ...customizer,
+      name: duplicate ? `${customizer.name} Copy` : customizer.name
+    });
+    setAppModal("templateCustomizer");
+    setStatus(duplicate ? `Duplicated template for customization: ${customizer.name}` : `Customizing ${customizer.name}`);
+  }
+
+  function previewTemplate(templateKey: string) {
+    const customizer = templateCustomizerFromKey(templateKey, engine?.templates || []);
+    setTemplateCustomizer(customizer);
+    setAiNotes(templatePreviewSummary(customizer));
+    setAppModal("templateCustomizer");
+    setStatus(`Previewing template settings: ${customizer.name}`);
+  }
+
+  async function applyTemplatePlan(templateKey: string) {
+    const customizer = templateCustomizerFromKey(templateKey, engine?.templates || []);
+    if (customizer.source === "json") {
+      await createFromTemplate(templateKey);
+      return;
+    }
+    await generateTemplatePlanFromForm(formFromTemplateCustomizer(customizer, beginnerForm));
+  }
+
+  async function applyTemplateCustomization() {
+    if (!templateCustomizer) {
+      setStatus("No template customization is open.");
+      return;
+    }
+    setAppModal(null);
+    if (templateCustomizer.source === "json") {
+      await createFromTemplate(templateCustomizer.key);
+      return;
+    }
+    await generateTemplatePlanFromForm(formFromTemplateCustomizer(templateCustomizer, beginnerForm));
+  }
+
+  function saveTemplateCustomization() {
+    if (!templateCustomizer) return;
+    try {
+      window.localStorage.setItem(`ave.myTemplate.${templateCustomizer.key}`, JSON.stringify({ ...templateCustomizer, savedAt: new Date().toISOString() }));
+      setStatus(`Saved template preset locally: ${templateCustomizer.name}`);
+    } catch {
+      setStatus("Template preset could not be saved locally.");
+    }
+  }
+
+  function saveTemplatePreset(templateKey: string) {
+    const customizer = templateCustomizerFromKey(templateKey, engine?.templates || []);
+    try {
+      window.localStorage.setItem(`ave.myTemplate.${templateKey}`, JSON.stringify({ ...customizer, savedAt: new Date().toISOString() }));
+      setStatus(`Saved template preset locally: ${customizer.name}`);
+    } catch {
+      setStatus("Template preset could not be saved locally.");
     }
   }
 
@@ -1171,6 +2083,7 @@ function App() {
           note: `${renderQuality}_plan_review`
         });
         setStatus("AI edit plan ready for review");
+        addNotification("AI plan ready", "Beginner auto video plan is ready to review.", "success", "aiReview", `${sceneCount} proposed scenes`);
         updateProcessing({
           currentStage: "AI plan ready",
           activeTask: "Review before applying to timeline",
@@ -1237,21 +2150,16 @@ function App() {
       return;
     }
     const targetPath = pendingAiPlan.path || projectPath;
-    const version = await window.ave.recordHistory({
-      projectPath: targetPath,
-      oldText: projectText,
-      newText: pendingAiPlan.text,
-      summary: {
-        summary: "AI plan applied",
-        source: pendingAiPlan.source,
-        prompt: pendingAiPlan.prompt,
-        style: pendingAiPlan.review.style,
-        duration: pendingAiPlan.review.duration,
-        sceneCount: parseProject(pendingAiPlan.text).data?.timeline?.length || pendingAiPlan.review.scenes.length,
-        reversible: true
-      }
-    });
-    await window.ave.autosaveProject({ text: projectText, projectPath: targetPath });
+    const versionName = pendingAiPlan.source === "template" ? "Before template apply" : "Before AI edit";
+    const version = await recordProjectVersion(versionName, {
+      source: pendingAiPlan.source,
+      prompt: pendingAiPlan.prompt,
+      style: pendingAiPlan.review.style,
+      duration: pendingAiPlan.review.duration,
+      sceneCount: parseProject(pendingAiPlan.text).data?.timeline?.length || pendingAiPlan.review.scenes.length,
+      safeEditRule: "restore_point_before_ai_or_template"
+    }, pendingAiPlan.text, projectText, targetPath);
+    await captureAutosave(versionName.toLowerCase().replace(/\s+/g, "_"), projectText, targetPath);
     const appliedPath = targetPath || (typeof version?.projectPath === "string" ? version.projectPath : null);
     setProjectText(pendingAiPlan.text);
     setProjectPath(appliedPath);
@@ -1283,6 +2191,18 @@ function App() {
       setUiMode("beginner");
       setActiveTab("beginner");
       setAppModal(null);
+    } else if (pendingAiPlan?.source === "template") {
+      const key = pendingAiPlan.form?.template || String(pendingAiPlan.data?.templateKey || "");
+      const customizer = templateCustomizerFromKey(key, engine?.templates || []);
+      setTemplateCustomizer(pendingAiPlan.form ? {
+        ...customizer,
+        platform: pendingAiPlan.form.targetPlatform,
+        duration: pendingAiPlan.form.duration,
+        captionStyle: customizer.captionStyle,
+        pacing: customizer.pacing
+      } : customizer);
+      setActiveTab("templatesMode");
+      setAppModal("templateCustomizer");
     } else {
       setAppModal("ai");
     }
@@ -1300,6 +2220,9 @@ function App() {
     setPendingAiPlan(null);
     if (source === "quick") {
       await generateBeginnerAutoVideo(plan.renderQuality || "preview", form || beginnerForm);
+    } else if (source === "template") {
+      if (form) await generateTemplatePlanFromForm(form);
+      else await createFromTemplate(String(plan.data?.templateKey || plan.prompt.replace(/^Apply template:\s*/i, "")));
     } else if (source === "youtubeShort") {
       await generateYouTubeShort();
     } else if (source === "content") {
@@ -1337,6 +2260,7 @@ function App() {
       });
       setGenerationReview(reviewState);
       setStatus("AI edit plan ready for review");
+      addNotification("AI plan ready", "Prompt-generated edit plan is ready to review.", "success", "aiReview", `${reviewState.scenes.length} scenes`);
       setUiMode("advanced");
       setAppModal("aiReview");
       finishProcessing("Prompt plan generated", "success");
@@ -1366,6 +2290,7 @@ function App() {
       setGenerationReview(reviewState);
       setAiNotes(`YouTube Short plan ready.\nHook: ${hook}\nDuration: ${duration}\nReview it before applying to the timeline.`);
       setStatus("YouTube Short plan ready for review");
+      addNotification("AI plan ready", "YouTube Short plan is ready to review.", "success", "aiReview", hook);
       setUiMode("advanced");
       setAppModal("aiReview");
       updateProcessing({ currentStage: "Short plan ready", progress: 100, currentScene: `${parseProject(result.text).data?.timeline?.length || "Generated"} scenes` }, "Generated YouTube Short plan", "success", hook);
@@ -1376,12 +2301,14 @@ function App() {
     }
   }
 
-  async function generateContentMode(regenerate = "full") {
-    beginProcessing(regenerate === "full" ? "Content Mode" : `Regenerate ${regenerate}`, stageForRegeneration(regenerate), prompt);
+  async function generateContentMode(regenerate = "full", promptOverride?: string, toneOverride?: string) {
+    const promptToUse = promptOverride || prompt;
+    const toneToUse = toneOverride || contentTone;
+    beginProcessing(regenerate === "full" ? "Content Mode" : `Regenerate ${regenerate}`, stageForRegeneration(regenerate), promptToUse);
     const result = await window.ave.contentGenerate({
-      prompt,
+      prompt: promptToUse,
       mode: contentMode,
-      tone: contentTone,
+      tone: toneToUse,
       style: "auto",
       existingPlan: regenerate === "full" ? null : generationPlanPath,
       regenerate,
@@ -1398,7 +2325,7 @@ function App() {
       setPendingAiPlan({
         source: "content",
         title: "AI Edit Plan",
-        prompt,
+        prompt: promptToUse,
         text: result.text,
         path: result.path || null,
         data: result.data || {},
@@ -1406,8 +2333,9 @@ function App() {
         preset: presetValue
       });
       setGenerationReview(fallbackReview);
-      setAiNotes(`Content plan ready for review.\nMode: ${contentMode}\nHook: ${hook}\nDuration: ${duration}\nApprove sections before final export.`);
+      setAiNotes(`Content plan ready for review.\nMode: ${contentMode}\nStyle: ${toneToUse}\nHook: ${hook}\nDuration: ${duration}\nApprove sections before final export.`);
       setStatus(regenerate === "full" ? "Content review plan generated" : `Regenerated ${regenerate}`);
+      addNotification("AI plan ready", regenerate === "full" ? "Content generation plan is ready to review." : `Regenerated ${regenerate} is ready to review.`, "success", "aiReview", hook);
       setUiMode("advanced");
       setAppModal("aiReview");
       updateProcessing({
@@ -1463,6 +2391,7 @@ function App() {
       });
       setAiNotes(`Autonomous production plan ready.\nHook strategy: ${hook}\nReadiness: ${score ?? "review needed"}/100\n${explanation || reasoning || "Review and approve sections before final export."}`);
       setStatus("Autonomous production plan ready for review");
+      addNotification("AI plan ready", "Autonomous production plan is ready to review.", "success", "aiReview", `Readiness ${score ?? "pending"}/100`);
       setUiMode("advanced");
       setAppModal("aiReview");
       updateProcessing({
@@ -1519,21 +2448,67 @@ function App() {
     finishProcessing(`Imported ${imported.length} asset(s)`, "success");
   }
 
+  async function replaceProjectAsset(assetKey: string) {
+    beginProcessing("Replace media", `Choosing replacement for ${assetKey}`);
+    const imported = await window.ave.importAssets({ projectPath });
+    const replacement = imported[0];
+    if (!replacement || !project) {
+      finishProcessing("Replace media canceled", "warning");
+      return;
+    }
+    const next = structuredClone(project);
+    next.assets = { ...(next.assets || {}), [assetKey]: replacement.path };
+    updateProject(next);
+    setStatus(`Replaced ${assetKey} with ${replacement.path}`);
+    finishProcessing(`Replaced ${assetKey}`, "success");
+  }
+
   async function generateCaptionsFromTranscript() {
     const transcript = await window.ave.pickTranscript();
     if (!transcript) return;
+    beginProcessing("Captions", "Generating captions", transcript);
     const result = await window.ave.addCaptions({ text: projectText, transcriptPath: transcript, mode: "word", style: "tiktok" });
     if (result.ok && result.text) {
-      setProjectText(result.text);
+      await commitProjectTextChange("caption generation", result.text, { source: "captions", transcriptPath: transcript, mode: "word" });
       setStatus("Captions generated from transcript");
-      setActiveTab("preview");
+      setActiveTab("captionsMode");
+      addNotification("Caption generation complete", "Generated captions from the selected transcript.", "success", "captions", transcript);
+      finishProcessing("Captions generated", "success");
     } else {
       setStatus(result.stderr || result.stdout || "Caption generation failed");
+      finishProcessing("Caption generation failed", "error");
     }
+  }
+
+  async function importCaptionFile() {
+    const transcript = await window.ave.pickTranscript();
+    if (!transcript) return;
+    beginProcessing("Import captions", "Importing SRT / VTT", transcript);
+    const result = await window.ave.addCaptions({ text: projectText, transcriptPath: transcript, mode: "sentence", style: "clean" });
+    if (result.ok && result.text) {
+      await commitProjectTextChange("caption import", result.text, { source: "caption_import", transcriptPath: transcript, mode: "sentence" });
+      setStatus("Imported captions into the JSON timeline");
+      setActiveTab("captionsMode");
+      addNotification("Caption generation complete", "Imported captions into the JSON timeline.", "success", "captions", transcript);
+      finishProcessing("Caption import complete", "success");
+    } else {
+      setStatus(result.stderr || result.stdout || "Caption import failed");
+      finishProcessing("Caption import failed", "error");
+    }
+  }
+
+  function applyCaptionPreset(style: string) {
+    if (!project) {
+      setStatus(`Caption style preset selected: ${style}`);
+      return;
+    }
+    updateProject(applyCaptionStylePreset(project, style));
+    setStatus(`Applied caption style preset: ${style}`);
   }
 
   async function render(label: string, renderQuality: "preview" | "final") {
     beginProcessing(label, renderQuality === "final" ? "Preparing final export" : "Preparing preview render", `${preset} ${exportFormat}`);
+    let renderProjectPath = projectPath;
     if (renderQuality === "final" && generationReview && !generationReview.readyForFinalRender) {
       setStatus(`Final render blocked: ${generationReview.unresolved.length} generated section(s) still need approval`);
       setActiveTab("timeline");
@@ -1558,10 +2533,22 @@ function App() {
         finishProcessing("Final render blocked by preflight", "warning");
         return;
       }
+      const version = await recordProjectVersion("Before final export", {
+        source: "export",
+        exportPreset: preset,
+        format: exportFormat,
+        safeEditRule: "export_does_not_modify_source_timeline"
+      });
+      if (!renderProjectPath && typeof version?.projectPath === "string") {
+        renderProjectPath = version.projectPath;
+        setProjectPath(version.projectPath);
+      }
+      await captureAutosave("before_final_export", projectText, renderProjectPath);
     }
     const result = await window.ave.startRender({
       text: projectText,
-      projectPath,
+      projectPath: renderProjectPath,
+      outputPath: outputPathFromDefaultFolder(settings.defaultExportFolder, projectTitle, renderQuality, exportFormat),
       quality: renderQuality,
       preset,
       format: exportFormat,
@@ -1610,6 +2597,7 @@ function App() {
       setGenerationReview(reviewState);
       setAiNotes(String(data.summary || "AI Director plan ready. Review before applying to the timeline."));
       setStatus("AI Director plan ready for review");
+      addNotification("AI plan ready", "AI Director prepared an edit plan for review.", "success", "aiReview", String(data.summary || directorGoal));
       setAppModal("aiReview");
       finishProcessing("AI Director plan ready", "success");
     } else {
@@ -1650,7 +2638,7 @@ function App() {
     beginProcessing("B-roll resolver", "Selecting matching local assets", projectPath || "current project");
     const result = await window.ave.resolveBroll({ text: projectText, projectPath });
     if (result.ok && result.text) {
-      setProjectText(result.text);
+      await commitProjectTextChange("B-roll resolution", result.text, { source: "resolve_broll" });
       setStatus("B-roll placeholders resolved");
       finishProcessing("B-roll placeholders resolved", "success");
     } else {
@@ -1716,6 +2704,7 @@ function App() {
 
   async function updateProjectAndRefreshPreview(nextProject: ProjectData) {
     const nextText = formatProject(nextProject);
+    await captureAutosave("before_preview_edit", projectText, projectPath);
     setProjectText(nextText);
     await productAction("Preview edit", async () => {
       const selectedScene = previewScope === "scene" ? previewSceneId || nextProject.timeline?.[0]?.id || null : null;
@@ -1756,6 +2745,10 @@ function App() {
       if (updateStatus) {
         setStatus(report?.ready ? "Final preflight passed" : `Final preflight found ${report?.warningsRemaining ?? report?.issueCount ?? 0} issue(s)`);
       }
+      const missingIssue = (report?.issues || []).find((issue) => /missing|asset|media|file/i.test(`${issue.category} ${issue.message}`));
+      if (missingIssue) {
+        addNotification("Missing media warning", missingIssue.message, missingIssue.blocking ? "error" : "warning", "assets", missingIssue.suggestion || undefined);
+      }
       return report;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1766,6 +2759,30 @@ function App() {
   }
 
   async function repairFinalPreflight(mode: string, issueId?: string | null) {
+    const bulkMode = mode === "all" || mode === "safe_all" || mode === "accept_all";
+    if (bulkMode) {
+      setStatus("Bulk preflight repair is disabled. Approve fixes one issue at a time.");
+      window.alert("Preflight fixes are applied one issue at a time so the project is never modified without your explicit approval.");
+      return;
+    }
+    const issue = (finalPreflightReport?.issues || []).find((item) => item.id === issueId);
+    if (!issueId || !issue) {
+      setStatus("Select a specific preflight issue before applying a fix.");
+      return;
+    }
+    if (mode === "selected" && !issue.safeAutoFix) {
+      setStatus("This preflight issue does not have a safe automatic fix.");
+      window.alert("This issue needs a manual edit. No project changes were made.");
+      return;
+    }
+    const actionLabel = mode === "ignore"
+      ? "accept this issue as intentional"
+      : `apply this suggested fix: ${issue.autoFix?.label || issue.suggestion || issue.category}`;
+    const approved = window.confirm(`Preflight approval required\n\nIssue:\n${issue.message}\n\nAction:\n${actionLabel}\n\nThis will update the project JSON. Continue?`);
+    if (!approved) {
+      setStatus("Preflight change canceled");
+      return;
+    }
     await productAction("Preflight repair", async () => {
       const result = await window.ave.repairPreflight({
         text: projectText,
@@ -1775,7 +2792,7 @@ function App() {
         mode,
         issueId
       });
-      if (result.text) setProjectText(result.text);
+      if (result.text) await commitProjectTextChange("preflight repair", result.text, { source: "preflight_repair", mode, issueId: issueId || null });
       const refreshed = await window.ave.finalPreflight({
         text: result.text || projectText,
         projectPath: result.path || projectPath,
@@ -1783,7 +2800,7 @@ function App() {
         format: exportFormat
       });
       if (refreshed.data) setFinalPreflightReport(refreshed.data as FinalPreflightReport);
-      setStatus(mode === "all" ? "Safe preflight repairs applied" : `Preflight issue ${mode}`);
+      setStatus(mode === "ignore" ? "Preflight issue accepted by user" : "Approved preflight fix applied");
     });
   }
 
@@ -1858,8 +2875,8 @@ function App() {
         captions
       });
       if (result.text) {
-        setProjectText(result.text);
-        setProjectPath(result.path || null);
+        await commitProjectTextChange("quick re-export", result.text, { source: "post_export_reexport", mode, preset: presetValue || null, captions }, result.path || projectPath);
+        if (result.path) setProjectPath(result.path);
       }
       setStatus(result.ok ? `Quick re-export JSON ready: ${result.path}` : result.stderr || result.stdout || "Quick re-export failed");
     });
@@ -1900,7 +2917,7 @@ function App() {
     await productAction("Brand kit apply", async () => {
       const result = await window.ave.applyBrandKit({ text: projectText, projectPath });
       if (result.ok && result.text) {
-        setProjectText(result.text);
+        await commitProjectTextChange("brand kit apply", result.text, { source: "brand_kit" });
         setStatus("Brand kit applied");
       } else {
         setStatus(result.stdout || result.stderr || "Brand kit apply canceled");
@@ -1913,13 +2930,98 @@ function App() {
       const saved = await window.ave.saveSettings(next);
       setSettings(saved);
       setPreviewTimeSeconds(saved.previewTimeSeconds);
+      applyWorkspaceLayout(saved);
+      applyOnboardingDefaults(saved);
       setStatus("Settings saved");
     });
   }
 
+  function applyWorkspaceLayout(next: AppSettings) {
+    setLeftRailOpen(next.leftRailOpen !== false);
+    setRightRailOpen(next.rightRailOpen !== false);
+  }
+
+  async function applyWorkspacePreset(presetName: WorkspacePreset) {
+    const next = workspacePresetSettings(settings, presetName);
+    setSettings(next);
+    applyWorkspaceLayout(next);
+    setUiMode(presetName === "beginner" ? "beginner" : "advanced");
+    setActiveTab(tabForWorkspacePreset(presetName));
+    await window.ave.saveSettings(next);
+    await window.ave.logFriction({ event: "workspace_preset", label: presetName });
+    setStatus(`Workspace preset applied: ${friendlyPresetName(presetName)}`);
+  }
+
+  async function saveWorkspaceLayout() {
+    const next: AppSettings = {
+      ...settings,
+      leftRailOpen,
+      rightRailOpen
+    };
+    const saved = await window.ave.saveSettings(next);
+    setSettings(saved);
+    setStatus("Workspace layout saved");
+  }
+
+  async function popOutWorkspacePanel(panel: "preview" | "timeline" | "inspector") {
+    const result = await window.ave.popOutPanel({
+      panel,
+      title: `${projectTitle} - ${friendlyPresetName(panel)}`,
+      projectPath,
+      previewPath
+    });
+    const current = await window.ave.getSettings();
+    setSettings(current);
+    setStatus(`${friendlyPresetName(panel)} popped out (${result.bounds.width}x${result.bounds.height})`);
+  }
+
+  function applyOnboardingDefaults(next: AppSettings) {
+    const nextPreset = presetForOnboardingPlatform(next.defaultPlatform);
+    setPreset(nextPreset);
+    setContentMode(next.defaultPlatform === "standard" ? "product_showcase" : "youtube_shorts");
+    setContentTone(next.defaultStyle);
+    setQuickCreate((current) => ({
+      ...current,
+      platform: next.defaultPlatform === "standard" ? "normal" : next.defaultPlatform,
+      style: next.defaultStyle
+    }));
+    setBeginnerForm((current) => ({
+      ...current,
+      targetPlatform: next.defaultPlatform === "standard" ? "youtube" : next.defaultPlatform,
+      vibe: current.vibe || next.defaultStyle
+    }));
+  }
+
+  async function completeOnboarding(next: AppSettings) {
+    const saved = await window.ave.saveSettings({ ...next, onboardingComplete: true });
+    setSettings(saved);
+    applyWorkspaceLayout(saved);
+    applyOnboardingDefaults(saved);
+    setAppModal(null);
+    if (saved.defaultWorkflow === "quick") {
+      setUiMode("beginner");
+      setActiveTab("beginner");
+    } else if (saved.defaultWorkflow === "guided") {
+      setUiMode("advanced");
+      setActiveTab("home");
+      setGuidedStep(1);
+    } else {
+      setUiMode("advanced");
+      setActiveTab("editor");
+    }
+    setStatus("Welcome setup complete");
+  }
+
+  async function pickDefaultExportFolder() {
+    const folder = await window.ave.pickExportFolder();
+    if (!folder) return null;
+    setSettings((current) => ({ ...current, defaultExportFolder: folder }));
+    return folder;
+  }
+
   async function autosaveNow() {
     await productAction("Autosave", async () => {
-      await window.ave.autosaveProject({ text: projectText, projectPath });
+      await captureAutosave("manual_autosave", projectText, projectPath);
       setRecoveryPoints(await window.ave.listRecovery({ projectPath }));
       setStatus("Autosave captured");
     });
@@ -1937,8 +3039,56 @@ function App() {
       const file = await window.ave.restoreRecovery({ sourcePath, targetPath: projectPath });
       setProjectPath(file.path);
       setProjectText(file.text);
+      restoreLocalSessionState();
       setStatus(`Recovered ${file.name}`);
     });
+  }
+
+  async function runProjectHealthCheck() {
+    await productAction("Project health", async () => {
+      const report = await window.ave.projectHealth({ text: projectText, projectPath });
+      setProjectHealth(report);
+      setStatus(report.ready ? `Project health OK (${report.score}/100)` : `Project health needs attention (${report.score}/100)`);
+    });
+  }
+
+  async function duplicateVersion(versionId: string) {
+    if (!projectPath) {
+      setStatus("Save the project before duplicating a version.");
+      return;
+    }
+    const file = await window.ave.duplicateHistory({ projectPath, versionId });
+    setProjectPath(file.path);
+    setProjectText(file.text);
+    setStatus(`Duplicated version ${versionId}`);
+    setRecent(await window.ave.getRecentProjects());
+    setActiveTab("editor");
+  }
+
+  async function compareVersion(versionId: string) {
+    if (!projectPath) {
+      setStatus("Save the project before comparing versions.");
+      return;
+    }
+    const comparison = await window.ave.compareHistory({ projectPath, versionId });
+    setVersionComparison(comparison);
+    setAppModal("versionCompare");
+    setStatus(`Compared version ${versionId}`);
+  }
+
+  async function restoreStartupRecovery() {
+    const point = startupRecovery?.latestRecovery || recoveryPoints[0];
+    if (!point) {
+      setStatus("No startup recovery point is available.");
+      return;
+    }
+    const file = await window.ave.restoreRecovery({ sourcePath: point.path, targetPath: projectPath });
+    setProjectPath(file.path);
+    setProjectText(file.text);
+    restoreLocalSessionState();
+    setRecoveryPoints(await window.ave.listRecovery({ projectPath: file.path }));
+    setAppModal(null);
+    setStatus(`Recovered unsaved project from ${point.timestamp || "last autosave"}`);
   }
 
   async function refreshHardeningStatus() {
@@ -1946,6 +3096,10 @@ function App() {
       const statusReport = await window.ave.getHardeningStatus();
       setHardeningStatus(statusReport);
       setStatus("Local hardening status refreshed");
+      if (hardeningStatusHasUpdate(statusReport) && !updateAvailableNotificationRef.current) {
+        updateAvailableNotificationRef.current = true;
+        addNotification("Update available", "A newer local app/runtime component appears to be available.", "info", "settings", "Open settings or diagnostics before updating.");
+      }
     });
   }
 
@@ -2010,6 +3164,36 @@ function App() {
     void recordAdaptiveEvent({ event: "fast_iteration", correction: "duplicate_project" });
   }
 
+  function addFinalReviewNote(text: string, time: number) {
+    if (!project || !text.trim()) return;
+    const scene = sceneAtTime(project, time) || project.timeline?.[0];
+    if (!scene) return;
+    updateProject(addPreviewReviewNote(project, { text: text.trim(), time, sceneId: scene.id }), "final_review_note");
+    setFinalReviewStatus("needs_changes");
+    setStatus(`Added final review note at ${formatTimestamp(time)}`);
+  }
+
+  function markFinalReviewIssue(type: PreviewMarkerType, note: string, time: number) {
+    if (!project) return;
+    const scene = sceneAtTime(project, time) || project.timeline?.[0];
+    if (!scene) return;
+    updateProject(addPreviewReviewMarker(project, { type, time, sceneId: scene.id, note: note || "Final review issue" }), "final_review_marker");
+    setFinalReviewStatus("needs_changes");
+    setStatus(`Marked ${type.replace(/_/g, " ")} at ${formatTimestamp(time)}`);
+  }
+
+  function approveFinalReview() {
+    setFinalReviewStatus("approved");
+    setStatus("Final review approved");
+    addNotification("Final review approved", "The cut is marked ready for export.", "success", "export");
+  }
+
+  function needsFinalReviewChanges() {
+    setFinalReviewStatus("needs_changes");
+    setStatus("Marked final review as needing changes");
+    setActiveTab("editor");
+  }
+
   async function refreshFrictionReport() {
     const report = await window.ave.getFrictionReport();
     setFrictionReport(report);
@@ -2034,9 +3218,30 @@ function App() {
     preflightBlockingCount: preflightBlockingIssues.length,
     preflightWarningCount
   });
+  const appStyle = {
+    "--accent-color": settings.accentColor || "#6db5a5",
+    "--left-rail-width": `${leftRailOpen ? Math.max(0, Number(settings.leftRailWidth || 260)) : 0}px`,
+    "--right-rail-width": `${rightRailOpen ? Math.max(0, Number(settings.rightRailWidth || 360)) : 0}px`
+  } as CSSProperties;
+  const visibleSuggestedEdits = suggestedEdits
+    .filter((suggestion) => !ignoredSuggestedEditIds.includes(suggestion.id))
+    .filter((suggestion) => !disabledSuggestionTypes.includes(suggestion.action));
+  const activeTaskCount = managedTasks.filter((task) => ["queued", "running", "paused"].includes(task.status)).length;
+  const unreadNotificationCount = notifications.filter((notification) => !notification.read).length;
+
+  function openBeginnerAiPromptBuilder() {
+    setUiMode("advanced");
+    setActiveTab("aiStudio");
+    setAiPromptBuilderOpen(true);
+    setAppModal(null);
+    setStatus("Opened AI Studio prompt builder");
+  }
 
   return (
-    <div className={`app-shell theme-${settings.theme} mode-${uiMode} ${leftRailOpen ? "" : "left-rail-collapsed"} ${rightRailOpen ? "" : "right-rail-collapsed"}`}>
+    <div
+      className={`app-shell theme-${settings.theme} scale-${settings.uiScale || "medium"} layout-${settings.panelDock || "standard"} workspace-preset-${settings.workspacePreset || "editing"} mode-${uiMode} ${leftRailOpen ? "" : "left-rail-collapsed"} ${rightRailOpen ? "" : "right-rail-collapsed"}`}
+      style={appStyle}
+    >
       <header className="topbar">
         <div className="project-chip">
           <strong>{projectTitle}</strong>
@@ -2048,18 +3253,43 @@ function App() {
           <button title="Redo is available inside the active editor." onClick={() => setStatus("Use Ctrl+Y or Ctrl+Shift+Z in the active editor when available.")}><Redo2 size={16} /> Redo</button>
           <button title="Import media" onClick={() => setAppModal("import")}><Import size={16} /> Import</button>
           <button title="Export settings and final render" onClick={() => { setRightRailOpen(true); setAppModal("export"); }}><Download size={16} /> Export</button>
+          <button title="Open a beginner-friendly AI prompt builder" onClick={openBeginnerAiPromptBuilder}><CircleHelp size={16} /> Help me make this</button>
           <button title="AI Generate" onClick={() => setAppModal("ai")}><Sparkles size={16} /> AI Generate</button>
+          <button title="Workspace layout, panels, themes, and scaling" onClick={() => setAppModal("workspace")}><Maximize2 size={16} /> Workspace</button>
           <button title="Caption style picker" onClick={() => setAppModal("captionStyle")}><Captions size={16} /> Captions</button>
+          <button title={leftRailOpen ? "Collapse media sidebar" : "Show media sidebar"} onClick={() => setLeftRailOpen((value) => !value)}><LayoutTemplate size={16} /> {leftRailOpen ? "Hide Left" : "Show Left"}</button>
+          <button title={rightRailOpen ? "Collapse inspector" : "Show inspector"} onClick={() => setRightRailOpen((value) => !value)}><Settings size={16} /> {rightRailOpen ? "Hide Right" : "Show Right"}</button>
+          <button title="Open Task Manager" onClick={() => { setRightRailOpen(true); setProcessingCollapsed(false); setStatus("Task Manager opened"); }}><Clock size={16} /> Tasks{activeTaskCount ? ` ${activeTaskCount}` : ""}</button>
+          <button className="notification-button" title="Notification Center" onClick={() => { setNotificationCenterOpen((value) => !value); markNotificationsRead(); }}>
+            <Bell size={16} /> Notifications
+            {unreadNotificationCount > 0 && <span className="notification-badge">{unreadNotificationCount}</span>}
+          </button>
           {(processing.isActive || renderQueueItems.length > 0) && <button title="Render progress" onClick={() => setAppModal("renderProgress")}><Play size={16} /> Progress</button>}
           {(appError || preflightBlockingIssues.length > 0 || parsed.error) && <button title="Error recovery" onClick={() => setAppModal("errorRecovery")}><Wand2 size={16} /> Recover</button>}
           <button title="Settings" onClick={() => setAppModal("settings")}><Settings size={16} /> Settings</button>
           <button title="Help and local docs" onClick={() => setAppModal("help")}><CircleHelp size={16} /> Help</button>
         </div>
+        {notificationCenterOpen && (
+          <NotificationCenter
+            notifications={notifications}
+            onOpenAction={openNotificationAction}
+            onDismiss={dismissNotification}
+            onClear={clearNotifications}
+            onClose={() => setNotificationCenterOpen(false)}
+          />
+        )}
       </header>
       {appError && (
         <div className="error-toast">
           <span>{appError}</span>
           <button onClick={() => setAppError("")}>Dismiss</button>
+        </div>
+      )}
+      {settings.beginnerTips && (activeTab === "home" || activeTab === "beginner") && (
+        <div className="beginner-tip-strip">
+          <span><strong>Tip:</strong> Start with Quick Create, preview the edit, then export when it feels right.</span>
+          <button title="See beginner guidance and example prompts" onClick={() => setAppModal("help")}>What does this do?</button>
+          <button onClick={() => { const next = { ...settings, beginnerTips: false }; setSettings(next); void window.ave.saveSettings(next); }}>Hide tips</button>
         </div>
       )}
       <main className="workspace">
@@ -2090,6 +3320,13 @@ function App() {
           )}
         </div>
         <aside className="left-rail" aria-hidden={!leftRailOpen}>
+          <div className="rail-titlebar">
+            <div>
+              <span className="eyebrow">Library</span>
+              <strong>Media & Tools</strong>
+            </div>
+            <button title="Collapse media and tools" onClick={() => setLeftRailOpen(false)}><X size={14} /></button>
+          </div>
           <EditorSidebar
             activeTab={activeTab}
             onTab={(tab) => { setUiMode("advanced"); setActiveTab(tab); }}
@@ -2122,7 +3359,53 @@ function App() {
           </details>
         </aside>
 
+        <nav className="mode-rail" aria-label="Creative workspace modes">
+          <button className={activeTab === "home" ? "active" : ""} title="Project Hub" onClick={() => { setUiMode("advanced"); setActiveTab("home"); }}>
+            <LayoutTemplate size={18} />
+            <span>Home</span>
+          </button>
+          <button className={["editor", "preview", "timeline", "assets"].includes(activeTab) ? "active" : ""} title="Editor" onClick={() => { setUiMode("advanced"); setActiveTab("editor"); }}>
+            <MonitorPlay size={18} />
+            <span>Edit</span>
+          </button>
+          <button className={["aiStudio", "director", "storyboard"].includes(activeTab) ? "active" : ""} title="AI Studio" onClick={() => { setUiMode("advanced"); setActiveTab("aiStudio"); }}>
+            <Bot size={18} />
+            <span>AI</span>
+          </button>
+          <button className={activeTab === "captionsMode" ? "active" : ""} title="Captions" onClick={() => { setUiMode("advanced"); setActiveTab("captionsMode"); }}>
+            <Captions size={18} />
+            <span>Caps</span>
+          </button>
+          <button className={activeTab === "templatesMode" || activeTab === "beginner" ? "active" : ""} title="Templates" onClick={() => { setUiMode("advanced"); setActiveTab("templatesMode"); }}>
+            <LayoutTemplate size={18} />
+            <span>Templates</span>
+          </button>
+          <button className={activeTab === "reviewMode" ? "active" : ""} title="Final Review" onClick={() => { setUiMode("advanced"); setActiveTab("reviewMode"); }}>
+            <CheckCircle2 size={18} />
+            <span>Review</span>
+          </button>
+          <button className={activeTab === "exportMode" || activeTab === "product" ? "active" : ""} title="Export" onClick={() => { setUiMode("advanced"); setActiveTab("exportMode"); setRightRailOpen(true); }}>
+            <Download size={18} />
+            <span>Export</span>
+          </button>
+          <button className={["diagnostics", "workflow", "json"].includes(activeTab) ? "active" : ""} title="Logs and diagnostics" onClick={() => { setUiMode("advanced"); setActiveTab("diagnostics"); }}>
+            <Clock size={18} />
+            <span>Logs</span>
+          </button>
+        </nav>
+
         <section className="center-stage">
+          <div className="workstation-strip">
+            <div>
+              <span className="eyebrow">Workspace</span>
+              <strong>{workflowContext.breadcrumbs.join(" / ")}</strong>
+            </div>
+            <div className="workstation-strip-actions">
+              <span>{friendlyPresetName(settings.workspacePreset || "editing")} layout</span>
+              <button title="Open workspace layout manager" onClick={() => setAppModal("workspace")}><Maximize2 size={14} /> Layout</button>
+              <button title="Pop out preview window" onClick={() => { void popOutWorkspacePanel("preview"); }}><MonitorPlay size={14} /> Pop Preview</button>
+            </div>
+          </div>
           <nav className="workflow-tabs">
             <button className={activeTab === "home" ? "active" : ""} onClick={() => { setUiMode("advanced"); setActiveTab("home"); }}><LayoutTemplate size={15} /> Home</button>
             {uiMode === "advanced" && (
@@ -2131,6 +3414,7 @@ function App() {
                 <button className={["aiStudio", "director", "storyboard"].includes(activeTab) ? "active" : ""} onClick={() => setActiveTab("aiStudio")}><Bot size={15} /> AI Studio</button>
                 <button className={activeTab === "captionsMode" ? "active" : ""} onClick={() => setActiveTab("captionsMode")}><Captions size={15} /> Captions</button>
                 <button className={activeTab === "templatesMode" || activeTab === "beginner" ? "active" : ""} onClick={() => setActiveTab("templatesMode")}><LayoutTemplate size={15} /> Templates</button>
+                <button className={activeTab === "reviewMode" ? "active" : ""} onClick={() => setActiveTab("reviewMode")}><CheckCircle2 size={15} /> Review</button>
                 <button className={activeTab === "exportMode" || activeTab === "product" ? "active" : ""} onClick={() => { setActiveTab("exportMode"); setRightRailOpen(true); }}><Download size={15} /> Export</button>
                 <button className={["diagnostics", "workflow", "json"].includes(activeTab) ? "active" : ""} onClick={() => setActiveTab("diagnostics")}><Clock size={15} /> Logs / Diagnostics</button>
                 {finalPreflightReport && (
@@ -2158,7 +3442,7 @@ function App() {
               quickCreate={quickCreate}
               setQuickCreate={setQuickCreate}
               guidedStep={guidedStep}
-              onNewProject={() => { setProjectText(formatProject(blankProject())); setProjectPath(null); setUiMode("advanced"); setActiveTab("editor"); }}
+              onNewProject={() => { void newProjectSafely("editor"); }}
               onOpenProject={openProject}
               onImport={importAssets}
               onTemplate={() => setActiveTab("templatesMode")}
@@ -2210,6 +3494,11 @@ function App() {
               onImport={importAssets}
               onAnalyze={runAssetIntelligence}
               onDropAsset={(asset) => project && updateProject(addAssetToFirstScene(project, asset))}
+              onReplaceAsset={(assetKey) => { void replaceProjectAsset(assetKey); }}
+              onAutosaveNow={() => { void autosaveNow(); }}
+              onDuplicateProject={() => { void duplicateProjectForIteration(); }}
+              versionCount={history.length}
+              recoveryCount={recoveryPoints.length}
             />
           )}
           {activeTab === "aiStudio" && (
@@ -2221,19 +3510,28 @@ function App() {
               contentTone={contentTone}
               setContentTone={setContentTone}
               generationReview={generationReview}
+              pendingAiPlan={pendingAiPlan}
               generationLocks={generationLocks}
               notes={aiNotes}
               directorGoal={directorGoal}
               setDirectorGoal={setDirectorGoal}
               directorReport={directorReport}
               storyboard={storyboard}
+              promptBuilderOpen={aiPromptBuilderOpen}
+              setPromptBuilderOpen={setAiPromptBuilderOpen}
               onGenerate={generateFromPrompt}
               onYouTubeShort={generateYouTubeShort}
               onContentGenerate={() => generateContentMode("full")}
+              onStudioGenerate={(studioPrompt, style, tasks) => {
+                setPrompt(studioPrompt);
+                setContentTone(style);
+                void generateContentMode("full", buildAiStudioPrompt(studioPrompt, tasks), style);
+              }}
               onAutonomousPipeline={runAutonomousPipeline}
               onContentRegenerate={(target) => generateContentMode(target)}
               onContentApprove={(section, statusValue) => approveGeneratedPlan(section, statusValue)}
               onContentLock={lockGenerationSection}
+              onApplyPendingPlan={applyPendingAiPlan}
               onExplain={() => project && setAiNotes(explainProject(project))}
               onRepair={repair}
               onDirector={runDirector}
@@ -2248,9 +3546,11 @@ function App() {
           {activeTab === "captionsMode" && (
             <CaptionsMode
               project={project || null}
+              onProjectChange={updateProject}
               onAutoCaption={generateCaptionsFromTranscript}
+              onImportCaptions={importCaptionFile}
               onPreview={() => setActiveTab("editor")}
-              onStyle={(style) => setStatus(`Caption style preset selected: ${style}`)}
+              onStyle={applyCaptionPreset}
               onBurnIn={() => setStatus("Burn-in captions are controlled by caption layers in the JSON timeline.")}
             />
           )}
@@ -2258,8 +3558,34 @@ function App() {
             <TemplatesMode
               beginnerTemplates={beginnerTemplates}
               templates={engine?.templates || []}
-              onBeginnerTemplate={(template) => { setBeginnerForm((form) => ({ ...form, template })); setUiMode("beginner"); setActiveTab("beginner"); }}
-              onTemplate={createFromTemplate}
+              onPreviewTemplate={previewTemplate}
+              onApplyTemplate={applyTemplatePlan}
+              onCustomizeTemplate={(template) => openTemplateCustomizer(template)}
+              onDuplicateTemplate={(template) => openTemplateCustomizer(template, true)}
+              onSaveTemplate={saveTemplatePreset}
+            />
+          )}
+          {activeTab === "reviewMode" && (
+            <FinalReviewMode
+              project={project || null}
+              previewPath={previewPath}
+              checks={finalReviewChecks}
+              finalPreflight={finalPreflightReport}
+              finalReviewStatus={finalReviewStatus}
+              preset={preset}
+              exportFormat={exportFormat}
+              onRunPreflight={() => { void runFinalPreflight(true); }}
+              onQualityCheck={runQualityCheck}
+              onWatch={() => setWatchFinalCutOpen(true)}
+              onLooksGood={approveFinalReview}
+              onNeedsChanges={needsFinalReviewChanges}
+              onExportNow={() => { setFinalReviewStatus("approved"); void render("Final render", "final"); }}
+              onRepairPreflight={(mode, issueId) => repairFinalPreflight(mode, issueId)}
+              onPreview={() => {
+                setPreviewScope("full");
+                setPreviewQualityMode("final_sim");
+                void generateInteractivePreview();
+              }}
             />
           )}
           {activeTab === "exportMode" && (
@@ -2278,8 +3604,8 @@ function App() {
               setGpu={setGpu}
               logs={renderLogs}
               renderQueueItems={renderQueueItems}
-              finalPreflight={finalPreflightReport}
               project={project || null}
+              finalPreflight={finalPreflightReport}
               onPreflight={() => { void runFinalPreflight(true); }}
               onRepairPreflight={(mode, issueId) => repairFinalPreflight(mode, issueId)}
               onPreview={() => render("Preview render", "preview")}
@@ -2306,6 +3632,7 @@ function App() {
                 <WorkflowPane
                   projectPath={projectPath}
                   history={history}
+                  projectHealth={projectHealth}
                   plugins={plugins}
                   renderQueueItems={renderQueueItems}
                   onExportPackage={async () => {
@@ -2321,10 +3648,14 @@ function App() {
                   }}
                   onRollback={async (versionId) => {
                     if (!projectPath) return;
+                    await captureAutosave("before_version_restore", projectText, projectPath);
                     const file = await window.ave.rollbackHistory({ projectPath, versionId });
                     setProjectText(file.text);
                     setStatus(`Rolled back to ${versionId}`);
                   }}
+                  onDuplicateVersion={duplicateVersion}
+                  onCompareVersion={compareVersion}
+                  onHealthCheck={runProjectHealthCheck}
                   onRefreshHistory={async () => projectPath && setHistory(await window.ave.listHistory({ projectPath }))}
                   onPauseQueue={async () => setRenderQueueItems(await window.ave.pauseRenderQueue())}
                   onResumeQueue={async () => setRenderQueueItems(await window.ave.resumeRenderQueue())}
@@ -2393,7 +3724,17 @@ function App() {
           {activeTab === "json" && (
             <JsonEditor text={projectText} schemaReady={Boolean(engine)} onChange={setProjectText} onMount={onEditorMount} validation={validation} />
           )}
-          {activeTab === "timeline" && project && <VisualTimeline project={project} onProjectChange={updateProject} />}
+          {activeTab === "timeline" && project && (
+            <VisualTimeline
+              project={project}
+              onProjectChange={updateProject}
+              interactivePreview={interactivePreview}
+              onAutosaveNow={() => { void autosaveNow(); }}
+              onDuplicateProject={() => { void duplicateProjectForIteration(); }}
+              versionCount={history.length}
+              recoveryCount={recoveryPoints.length}
+            />
+          )}
           {activeTab === "preview" && (
             <div className="editor-workspace">
               <PreviewWindow
@@ -2418,7 +3759,17 @@ function App() {
                 onProjectChange={updateProject}
                 onProjectPreviewChange={updateProjectAndRefreshPreview}
               />
-              {project ? <VisualTimeline project={project} onProjectChange={updateProject} /> : <div className="timeline-pane panel"><span className="muted">Import media or open a project to show the timeline.</span></div>}
+              {project ? (
+                <VisualTimeline
+                  project={project}
+                  onProjectChange={updateProject}
+                  interactivePreview={interactivePreview}
+                  onAutosaveNow={() => { void autosaveNow(); }}
+                  onDuplicateProject={() => { void duplicateProjectForIteration(); }}
+                  versionCount={history.length}
+                  recoveryCount={recoveryPoints.length}
+                />
+              ) : <div className="timeline-pane panel"><span className="muted">Import media or open a project to show the timeline.</span></div>}
             </div>
           )}
           {activeTab === "assets" && project && (
@@ -2429,6 +3780,8 @@ function App() {
               onImport={importAssets}
               onAnalyze={runAssetIntelligence}
               onDropAsset={(asset) => updateProject(addAssetToFirstScene(project, asset))}
+              onProjectChange={updateProject}
+              onReplaceAsset={(assetKey) => { void replaceProjectAsset(assetKey); }}
             />
           )}
           {activeTab === "director" && (
@@ -2449,6 +3802,7 @@ function App() {
             <WorkflowPane
               projectPath={projectPath}
               history={history}
+              projectHealth={projectHealth}
               plugins={plugins}
               renderQueueItems={renderQueueItems}
               onExportPackage={async () => {
@@ -2464,10 +3818,14 @@ function App() {
               }}
               onRollback={async (versionId) => {
                 if (!projectPath) return;
+                await captureAutosave("before_version_restore", projectText, projectPath);
                 const file = await window.ave.rollbackHistory({ projectPath, versionId });
                 setProjectText(file.text);
                 setStatus(`Rolled back to ${versionId}`);
               }}
+              onDuplicateVersion={duplicateVersion}
+              onCompareVersion={compareVersion}
+              onHealthCheck={runProjectHealthCheck}
               onRefreshHistory={async () => projectPath && setHistory(await window.ave.listHistory({ projectPath }))}
               onPauseQueue={async () => setRenderQueueItems(await window.ave.pauseRenderQueue())}
               onResumeQueue={async () => setRenderQueueItems(await window.ave.resumeRenderQueue())}
@@ -2569,6 +3927,25 @@ function App() {
             onJson={() => setAppModal("json")}
             onExport={() => setAppModal("export")}
           />
+          <SuggestedEditsPanel
+            suggestions={visibleSuggestedEdits}
+            savedSuggestions={savedSuggestedEdits}
+            disabledTypes={disabledSuggestionTypes}
+            onApply={applyProactiveSuggestion}
+            onIgnore={ignoreSuggestedEdit}
+            onSave={saveSuggestedEdit}
+            onDisableType={disableSuggestionType}
+            onEnableType={(action) => setDisabledSuggestionTypes((types) => types.filter((type) => type !== action))}
+          />
+          <TaskManagerPanel
+            tasks={managedTasks}
+            systemMetrics={systemMetrics}
+            onPause={(task) => { void pauseManagedTask(task); }}
+            onResume={(task) => { void resumeManagedTask(task); }}
+            onCancel={(task) => { void cancelManagedTask(task); }}
+            onClearCompleted={clearCompletedManagedTasks}
+            onOpenRenderProgress={() => setAppModal("renderProgress")}
+          />
           <details className="rail-section" open={activeTab === "director"}>
             <summary><Bot size={15} /> AI Assistant</summary>
             <AiPanel
@@ -2625,6 +4002,7 @@ function App() {
               setGpu={setGpu}
               logs={renderLogs}
               renderQueueItems={renderQueueItems}
+              project={project || null}
               finalPreflight={finalPreflightReport}
               onPreflight={() => { void runFinalPreflight(true); }}
               onRepairPreflight={(mode, issueId) => repairFinalPreflight(mode, issueId)}
@@ -2663,9 +4041,16 @@ function App() {
         pendingAiPlan={pendingAiPlan}
         generationLocks={generationLocks}
         aiNotes={aiNotes}
+        startupRecovery={startupRecovery}
+        recoveryPoints={recoveryPoints}
+        versionComparison={versionComparison}
+        templateCustomizer={templateCustomizer}
+        setTemplateCustomizer={setTemplateCustomizer}
+        onApplyTemplateCustomization={applyTemplateCustomization}
+        onSaveTemplateCustomization={saveTemplateCustomization}
         onImport={importAssets}
         onOpenProject={openProject}
-        onNewProject={() => { setProjectText(formatProject(blankProject())); setProjectPath(null); setUiMode("advanced"); setActiveTab("preview"); }}
+        onNewProject={() => { void newProjectSafely("preview"); }}
         onSave={saveProject}
         onSaveAs={saveAs}
         onGenerate={generateFromPrompt}
@@ -2680,6 +4065,9 @@ function App() {
         onRegeneratePendingPlan={() => { void regeneratePendingAiPlan(); }}
         onSavePendingPlan={savePendingAiPlanAsTemplate}
         onCancelPendingPlan={() => { setPendingAiPlan(null); setAppModal(null); setStatus("AI plan canceled"); }}
+        onRestoreStartupRecovery={restoreStartupRecovery}
+        onRestoreRecoveryPoint={restoreRecoveryPoint}
+        onDismissStartupRecovery={() => { setStartupRecovery(null); setAppModal(null); setStatus("Recovery dismissed"); }}
         onExplain={() => project && setAiNotes(explainProject(project))}
         onRepair={repair}
         onDirector={runDirector}
@@ -2708,6 +4096,7 @@ function App() {
         setGpu={setGpu}
         logs={renderLogs}
         renderQueueItems={renderQueueItems}
+        systemMetrics={systemMetrics}
         finalPreflight={finalPreflightReport}
         onPreflight={() => { void runFinalPreflight(true); }}
         onRepairPreflight={(mode, issueId) => repairFinalPreflight(mode, issueId)}
@@ -2721,9 +4110,49 @@ function App() {
         settings={settings}
         setSettings={setSettings}
         onSaveSettings={() => saveAppSettings(settings)}
+        leftRailOpen={leftRailOpen}
+        setLeftRailOpen={setLeftRailOpen}
+        rightRailOpen={rightRailOpen}
+        setRightRailOpen={setRightRailOpen}
+        onApplyWorkspacePreset={applyWorkspacePreset}
+        onSaveWorkspaceLayout={saveWorkspaceLayout}
+        onPopOutPanel={popOutWorkspacePanel}
+        onCompleteOnboarding={completeOnboarding}
+        onPickExportFolder={pickDefaultExportFolder}
+        onRunSystemCheck={refreshHardeningStatus}
+        onShowShortcuts={() => setAppModal("shortcuts")}
+        hardeningStatus={hardeningStatus}
         activityFeed={activityFeed}
         onOpenDocs={openLocalDocs}
       />
+
+      <RenderActivityPopup
+        processing={processing}
+        activityFeed={activityFeed}
+        renderQueueItems={renderQueueItems}
+        logs={renderLogs}
+        systemMetrics={systemMetrics}
+        gpuEnabled={gpu}
+        minimized={renderActivityMinimized}
+        onToggleMinimized={() => setRenderActivityMinimized((value) => !value)}
+        onOpenDetails={() => setAppModal("renderProgress")}
+        onPause={async () => setRenderQueueItems(await window.ave.pauseRenderQueue())}
+        onResume={async () => setRenderQueueItems(await window.ave.resumeRenderQueue())}
+        onCancel={async (runId) => setRenderQueueItems(await window.ave.cancelRenderJob({ runId }))}
+      />
+
+      {watchFinalCutOpen && (
+        <WatchFinalCutOverlay
+          previewPath={previewPath}
+          project={project || null}
+          checks={finalReviewChecks}
+          onClose={() => setWatchFinalCutOpen(false)}
+          onAddNote={addFinalReviewNote}
+          onMarkIssue={markFinalReviewIssue}
+          onApprove={approveFinalReview}
+          onExportNow={() => { setWatchFinalCutOpen(false); setFinalReviewStatus("approved"); void render("Final render", "final"); }}
+        />
+      )}
 
       <footer className="statusbar">
         <span>{status}</span>
@@ -2757,6 +4186,272 @@ function WorkflowContextHeader({ context }: { context: WorkflowContext }) {
         )}
       </div>
     </header>
+  );
+}
+
+function NotificationCenter({
+  notifications,
+  onOpenAction,
+  onDismiss,
+  onClear,
+  onClose
+}: {
+  notifications: AppNotification[];
+  onOpenAction: (action?: NotificationAction) => void;
+  onDismiss: (id: string) => void;
+  onClear: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <aside className="notification-center" role="status" aria-live="polite">
+      <div className="notification-head">
+        <div>
+          <strong>Notification Center</strong>
+          <span>{notifications.length ? `${notifications.length} recent update${notifications.length === 1 ? "" : "s"}` : "No notifications"}</span>
+        </div>
+        <button title="Close notifications" onClick={onClose}><X size={14} /></button>
+      </div>
+      <div className="notification-list">
+        {notifications.length === 0 && (
+          <div className="notification-empty">
+            <Bell size={18} />
+            <span>Finished exports, AI plans, captions, warnings, and failures will show up here quietly.</span>
+          </div>
+        )}
+        {notifications.map((notification) => (
+          <article className={`notification-card ${notification.kind} ${notification.read ? "read" : "unread"}`} key={notification.id}>
+            <button className="notification-main" onClick={() => onOpenAction(notification.action)}>
+              <strong>{notification.title}</strong>
+              <span>{notification.message}</span>
+              {notification.detail && <small>{notification.detail}</small>}
+            </button>
+            <div className="notification-meta">
+              <span>{notification.time}</span>
+              {notification.action && <button onClick={() => onOpenAction(notification.action)}>Open</button>}
+              <button title="Dismiss" onClick={() => onDismiss(notification.id)}><X size={12} /></button>
+            </div>
+          </article>
+        ))}
+      </div>
+      {notifications.length > 0 && (
+        <div className="notification-actions">
+          <button onClick={onClear}>Clear all</button>
+          <button onClick={onClose}>Done</button>
+        </div>
+      )}
+    </aside>
+  );
+}
+
+function FinalReviewMode({
+  project,
+  previewPath,
+  checks,
+  finalPreflight,
+  finalReviewStatus,
+  preset,
+  exportFormat,
+  onRunPreflight,
+  onQualityCheck,
+  onWatch,
+  onLooksGood,
+  onNeedsChanges,
+  onExportNow,
+  onRepairPreflight,
+  onPreview
+}: {
+  project: ProjectData | null;
+  previewPath: string | null;
+  checks: FinalReviewCheck[];
+  finalPreflight: FinalPreflightReport | null;
+  finalReviewStatus: FinalReviewStatus;
+  preset: string;
+  exportFormat: string;
+  onRunPreflight: () => void;
+  onQualityCheck: () => void;
+  onWatch: () => void;
+  onLooksGood: () => void;
+  onNeedsChanges: () => void;
+  onExportNow: () => void;
+  onRepairPreflight: (mode: string, issueId?: string | null) => void;
+  onPreview: () => void;
+}) {
+  const counts = {
+    error: checks.filter((check) => check.severity === "error").length,
+    warning: checks.filter((check) => check.severity === "warning").length,
+    info: checks.filter((check) => check.severity === "info").length,
+    pass: checks.filter((check) => check.severity === "pass").length
+  };
+  const blockers = counts.error + checks.filter((check) => check.severity === "warning").length;
+  const reviewMeta = project?.metadata?.previewReview as Record<string, unknown> | undefined;
+  const markers = Array.isArray(reviewMeta?.markers) ? reviewMeta.markers as Array<Record<string, unknown>> : [];
+  const notes = Array.isArray(reviewMeta?.notes) ? reviewMeta.notes as Array<Record<string, unknown>> : [];
+  return (
+    <div className="mode-page final-review-mode">
+      <section className="wide-panel review-hero-panel">
+        <div>
+          <span className="eyebrow">Quality Control</span>
+          <h2><CheckCircle2 size={18} /> Final Review Before Export</h2>
+          <p className="muted">Run preflight, watch the final cut without editor clutter, and approve the edit before committing render time.</p>
+        </div>
+        <div className={`review-verdict ${finalReviewStatus}`}>
+          <strong>{finalReviewStatus === "approved" ? "Looks good" : finalReviewStatus === "needs_changes" ? "Needs changes" : "Pending review"}</strong>
+          <span>{counts.error} errors / {counts.warning} warnings / {counts.pass} passing</span>
+        </div>
+      </section>
+
+      <section className="wide-panel">
+        <div className="review-actions large">
+          <button onClick={onPreview}><MonitorPlay size={15} /> Generate Final-Quality Preview</button>
+          <button onClick={onRunPreflight}><CheckCircle2 size={15} /> Run Review Checks</button>
+          <button onClick={onQualityCheck}><Wand2 size={15} /> Analyze Video Quality</button>
+          <button className="primary-create" onClick={onWatch} disabled={!previewPath}><Maximize2 size={15} /> Watch Final Cut</button>
+        </div>
+        {!previewPath && <p className="muted">Generate a preview first to use Watch Final Cut mode at final review quality.</p>}
+      </section>
+
+      <section className="wide-panel">
+        <div className="review-header">
+          <h2>Review Checks</h2>
+          <span className={finalPreflight?.ready ? "status-pill ok" : finalPreflight ? "status-pill warn" : "status-pill"}>{finalPreflight ? (finalPreflight.ready ? "preflight passed" : "preflight needs review") : "preflight not run"}</span>
+        </div>
+        <div className="review-check-grid">
+          {checks.map((check) => (
+            <article className={`review-check-card ${check.severity}`} key={check.id}>
+              <strong>{check.title}</strong>
+              <span>{check.detail}</span>
+              {check.suggestion && <small>{check.suggestion}</small>}
+              <div>
+                <em>{check.category}</em>
+                {check.sceneId && <em>{check.sceneId}</em>}
+                {typeof check.time === "number" && <em>{formatTimestamp(check.time)}</em>}
+              </div>
+            </article>
+          ))}
+        </div>
+        {finalPreflight?.issues?.length ? (
+          <div className="preflight-issues review-preflight-issues">
+            {finalPreflight.issues.map((issue) => (
+              <div className={`preflight-issue ${issue.severity}`} key={issue.id}>
+                <strong>{issue.category.replace(/_/g, " ")}</strong>
+                <span>{issue.message}</span>
+                <small>{issue.suggestion || "Review before export."}</small>
+                <div className="button-grid compact">
+                  {issue.safeAutoFix && !issue.accepted && <button onClick={() => onRepairPreflight("selected", issue.id)}><Wand2 size={14} /> Approve fix</button>}
+                  {!issue.accepted && <button onClick={() => onRepairPreflight("ignore", issue.id)}><CheckCircle2 size={14} /> Accept as intentional</button>}
+                  {issue.accepted && <span className="status-pill ok">accepted</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </section>
+
+      <section className="wide-panel final-review-summary">
+        <h2>Final Approval</h2>
+        <div className="ai-plan-summary-grid">
+          <span>platform <strong>{friendlyPresetName(preset)}</strong></span>
+          <span>format <strong>{exportFormat.toUpperCase()}</strong></span>
+          <span>markers <strong>{markers.length}</strong></span>
+          <span>notes <strong>{notes.length}</strong></span>
+          <span>readiness <strong>{blockers ? "review needed" : "ready"}</strong></span>
+          <span>duration <strong>{project ? `${totalTimelineDuration(project).toFixed(1)}s` : "0.0s"}</strong></span>
+        </div>
+        <div className="review-actions large">
+          <button onClick={onLooksGood}><CheckCircle2 size={15} /> Looks good</button>
+          <button onClick={onNeedsChanges}><Pencil size={15} /> Needs changes</button>
+          <button className="primary-create" onClick={onExportNow} disabled={counts.error > 0}><Download size={15} /> Export now</button>
+        </div>
+        {counts.error > 0 && <p className="muted">Export now is blocked until critical review errors are handled or accepted through preflight.</p>}
+      </section>
+    </div>
+  );
+}
+
+function WatchFinalCutOverlay({
+  previewPath,
+  project,
+  checks,
+  onClose,
+  onAddNote,
+  onMarkIssue,
+  onApprove,
+  onExportNow
+}: {
+  previewPath: string | null;
+  project: ProjectData | null;
+  checks: FinalReviewCheck[];
+  onClose: () => void;
+  onAddNote: (text: string, time: number) => void;
+  onMarkIssue: (type: PreviewMarkerType, note: string, time: number) => void;
+  onApprove: () => void;
+  onExportNow: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [note, setNote] = useState("");
+  const [markerType, setMarkerType] = useState<PreviewMarkerType>("needs_cut");
+  const currentTime = () => Number(videoRef.current?.currentTime || 0);
+  const topWarnings = checks.filter((check) => check.severity === "error" || check.severity === "warning").slice(0, 4);
+  function addNote() {
+    onAddNote(note, currentTime());
+    setNote("");
+  }
+  function markIssue() {
+    onMarkIssue(markerType, note || markerType.replace(/_/g, " "), currentTime());
+    setNote("");
+  }
+  return (
+    <div className="watch-final-cut">
+      <header>
+        <div>
+          <span className="eyebrow">Watch Final Cut</span>
+          <strong>{project ? `${totalTimelineDuration(project).toFixed(1)}s final review` : "Final review"}</strong>
+        </div>
+        <div className="review-actions">
+          <button onClick={onApprove}><CheckCircle2 size={14} /> Looks good</button>
+          <button onClick={onExportNow}><Download size={14} /> Export now</button>
+          <button onClick={onClose}><X size={14} /> Close</button>
+        </div>
+      </header>
+      <main>
+        <section className="watch-player-shell">
+          {previewPath ? (
+            <video ref={videoRef} src={window.ave.toFileUrl(previewPath)} controls autoPlay className="watch-player" />
+          ) : (
+            <div className="empty-preview">Generate a final-quality preview before watching the cut.</div>
+          )}
+        </section>
+        <aside className="watch-review-panel">
+          <h2>Mark While Watching</h2>
+          <label>
+            Issue type
+            <select value={markerType} onChange={(event) => setMarkerType(event.target.value as PreviewMarkerType)}>
+              {["needs_cut", "too_slow", "too_fast", "bad_caption", "bad_zoom", "bad_transition", "audio_issue", "keep"].map((type) => (
+                <option key={type} value={type}>{type.replace(/_/g, " ")}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Note
+            <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="caption too fast, black frame, audio spike..." />
+          </label>
+          <div className="review-actions">
+            <button onClick={markIssue}><Scissors size={14} /> Mark issue</button>
+            <button onClick={addNote}><Plus size={14} /> Add note</button>
+          </div>
+          <h3>Current Warnings</h3>
+          <div className="watch-warning-list">
+            {topWarnings.length === 0 && <span className="muted">No blocking review warnings right now.</span>}
+            {topWarnings.map((check) => (
+              <div className={`review-check-card ${check.severity}`} key={check.id}>
+                <strong>{check.title}</strong>
+                <span>{check.detail}</span>
+              </div>
+            ))}
+          </div>
+        </aside>
+      </main>
+    </div>
   );
 }
 
@@ -2969,7 +4664,12 @@ function EditorMode({
   onProjectPreviewChange,
   onImport,
   onAnalyze,
-  onDropAsset
+  onDropAsset,
+  onReplaceAsset,
+  onAutosaveNow,
+  onDuplicateProject,
+  versionCount,
+  recoveryCount
 }: {
   project: ProjectData | null;
   assets: AssetCheck[];
@@ -2995,6 +4695,11 @@ function EditorMode({
   onImport: () => void;
   onAnalyze: () => void;
   onDropAsset: (asset: ImportedAsset) => void;
+  onReplaceAsset: (assetKey: string) => void;
+  onAutosaveNow?: () => void;
+  onDuplicateProject?: () => void;
+  versionCount?: number;
+  recoveryCount?: number;
 }) {
   return (
     <div className="professional-editor">
@@ -3021,7 +4726,17 @@ function EditorMode({
           onProjectChange={onProjectChange}
           onProjectPreviewChange={onProjectPreviewChange}
         />
-        {project ? <VisualTimeline project={project} onProjectChange={onProjectChange} /> : <div className="timeline-pane panel"><span className="muted">Import media or open a project to show the timeline.</span></div>}
+        {project ? (
+          <VisualTimeline
+            project={project}
+            onProjectChange={onProjectChange}
+            interactivePreview={interactivePreview}
+            onAutosaveNow={onAutosaveNow}
+            onDuplicateProject={onDuplicateProject}
+            versionCount={versionCount}
+            recoveryCount={recoveryCount}
+          />
+        ) : <div className="timeline-pane panel"><span className="muted">Import media or open a project to show the timeline.</span></div>}
       </div>
       <aside className="media-bin-panel">
         <AssetLibrary
@@ -3031,6 +4746,8 @@ function EditorMode({
           onImport={onImport}
           onAnalyze={onAnalyze}
           onDropAsset={onDropAsset}
+          onProjectChange={onProjectChange}
+          onReplaceAsset={onReplaceAsset}
         />
       </aside>
     </div>
@@ -3045,19 +4762,24 @@ function AiStudioMode({
   contentTone,
   setContentTone,
   generationReview,
+  pendingAiPlan,
   generationLocks,
   notes,
   directorGoal,
   setDirectorGoal,
   directorReport,
   storyboard,
+  promptBuilderOpen,
+  setPromptBuilderOpen,
   onGenerate,
   onYouTubeShort,
   onContentGenerate,
+  onStudioGenerate,
   onAutonomousPipeline,
   onContentRegenerate,
   onContentApprove,
   onContentLock,
+  onApplyPendingPlan,
   onExplain,
   onRepair,
   onDirector,
@@ -3075,19 +4797,24 @@ function AiStudioMode({
   contentTone: string;
   setContentTone: (value: string) => void;
   generationReview: GenerationReviewState | null;
+  pendingAiPlan: PendingAiPlan | null;
   generationLocks: string[];
   notes: string;
   directorGoal: string;
   setDirectorGoal: (value: string) => void;
   directorReport: Record<string, unknown> | null;
   storyboard: Record<string, unknown> | null;
+  promptBuilderOpen: boolean;
+  setPromptBuilderOpen: (value: boolean) => void;
   onGenerate: () => void;
   onYouTubeShort: () => void;
   onContentGenerate: () => void;
+  onStudioGenerate: (prompt: string, style: string, tasks: string[]) => void;
   onAutonomousPipeline: () => void;
   onContentRegenerate: (target: string) => void;
   onContentApprove: (section?: string, statusValue?: string) => void;
   onContentLock: (section: string) => void;
+  onApplyPendingPlan: () => void;
   onExplain: () => void;
   onRepair: () => void;
   onDirector: () => void;
@@ -3098,94 +4825,492 @@ function AiStudioMode({
   onStoryboard: () => void;
   onAnalyzeAssets: () => void;
 }) {
+  const promptExamples = [
+    "Turn this into a YouTube Short",
+    "Find the funniest moments",
+    "Make this cinematic",
+    "Remove dead air",
+    "Add captions and zooms"
+  ];
+  const stylePresets = ["Clean", "Gaming", "Cinematic", "Educational", "Podcast", "Hype", "Minimal", "Meme"];
+  const taskOptions = [
+    "Detect highlights",
+    "Remove silence",
+    "Add captions",
+    "Add zooms",
+    "Add transitions",
+    "Add B-roll",
+    "Add music",
+    "Generate hook",
+    "Generate title ideas",
+    "Generate thumbnail ideas"
+  ];
+  const [selectedTasks, setSelectedTasks] = useState<string[]>(["Detect highlights", "Add captions", "Generate hook"]);
+  const [builderTopic, setBuilderTopic] = useState("");
+  const [builderGoal, setBuilderGoal] = useState("make this into a polished video people will want to watch");
+  const [builderAudience, setBuilderAudience] = useState("");
+  const [builderKeyPoints, setBuilderKeyPoints] = useState("");
+  const [builderNotes, setBuilderNotes] = useState("");
+  const parsedPending = pendingAiPlan ? parseProject(pendingAiPlan.text).data : null;
+  const planDetails = pendingAiPlan && parsedPending ? buildAiPlanDisplay(pendingAiPlan, parsedPending) : null;
+
+  function toggleTask(task: string) {
+    setSelectedTasks((current) => current.includes(task) ? current.filter((item) => item !== task) : [...current, task]);
+  }
+
+  function chooseStyle(style: string) {
+    setContentTone(style.toLowerCase());
+  }
+
+  function buildBeginnerPromptText() {
+    const keyPoints = builderKeyPoints
+      .split(/\r?\n|,/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    return [
+      `Create a ${friendlyPresetName(contentMode)} video.`,
+      builderTopic.trim() ? `Topic or product: ${builderTopic.trim()}.` : "Use the imported media as the main subject.",
+      builderGoal.trim() ? `Goal: ${builderGoal.trim()}.` : "",
+      builderAudience.trim() ? `Audience: ${builderAudience.trim()}.` : "",
+      keyPoints.length ? `Key points to include: ${keyPoints.join("; ")}.` : "",
+      `Style: ${friendlyPresetName(contentTone)}.`,
+      builderNotes.trim() ? `Extra direction: ${builderNotes.trim()}.` : "",
+      "Generate a simple reviewable edit plan first with scenes, captions, timing, transitions, and export settings. Do not require me to edit JSON."
+    ].filter(Boolean).join(" ");
+  }
+
+  function applyBeginnerPrompt(generate = false) {
+    const promptText = buildBeginnerPromptText();
+    setPrompt(promptText);
+    setPromptBuilderOpen(false);
+    if (generate) onStudioGenerate(promptText, contentTone, selectedTasks);
+  }
+
   return (
     <div className="mode-page ai-studio-mode">
-      <AiPanel
-        prompt={prompt}
-        setPrompt={setPrompt}
-        contentMode={contentMode}
-        setContentMode={setContentMode}
-        contentTone={contentTone}
-        setContentTone={setContentTone}
-        generationReview={generationReview}
-        generationLocks={generationLocks}
-        notes={notes}
-        onGenerate={onGenerate}
-        onYouTubeShort={onYouTubeShort}
-        onContentGenerate={onContentGenerate}
-        onAutonomousPipeline={onAutonomousPipeline}
-        onContentRegenerate={onContentRegenerate}
-        onContentApprove={onContentApprove}
-        onContentLock={onContentLock}
-        onExplain={onExplain}
-        onRepair={onRepair}
-        onDirector={onDirector}
-        onSuggestTransitions={onSuggestTransitions}
-        onAddScene={onAddScene}
-        onCaptions={onCaptions}
-      />
-      <DirectorWorkspace
-        goal={directorGoal}
-        setGoal={setDirectorGoal}
-        report={directorReport}
-        onRun={onDirector}
-        onResolveBroll={onResolveBroll}
-        onStoryboard={onStoryboard}
-        onAnalyzeAssets={onAnalyzeAssets}
-      />
-      <StoryboardPane storyboard={storyboard} onGenerate={onStoryboard} />
+      <section className="wide-panel ai-studio-prompt">
+        <div className="panel-head-row">
+          <div>
+            <span className="eyebrow">Review-first AI workflow</span>
+            <h2><Bot size={17} /> AI Studio</h2>
+          </div>
+          <span className="status-pill">timeline changes only after Apply AI Plan</span>
+        </div>
+        <div className="prompt-builder-actions">
+          <button className="primary-create" onClick={() => setPromptBuilderOpen(!promptBuilderOpen)}>
+            <CircleHelp size={15} /> Help me make this
+          </button>
+          <span className="muted">Answer a few plain-English questions, then AI Studio builds the prompt for you.</span>
+        </div>
+        {promptBuilderOpen && (
+          <div className="beginner-prompt-builder">
+            <div className="panel-head-row">
+              <div>
+                <span className="eyebrow">Beginner prompt builder</span>
+                <h3>Tell the AI what you want to make</h3>
+              </div>
+              <button onClick={() => setPromptBuilderOpen(false)}>Close</button>
+            </div>
+            <div className="prompt-builder-grid">
+              <label>
+                What are we making?
+                <input type="text" value={builderTopic} onChange={(event) => setBuilderTopic(event.target.value)} placeholder="Automatic troubleshooter, product demo, gaming clip..." />
+              </label>
+              <label>
+                Who is it for?
+                <input type="text" value={builderAudience} onChange={(event) => setBuilderAudience(event.target.value)} placeholder="Gamers, customers, SaaS buyers, students..." />
+              </label>
+              <label>
+                Main goal
+                <input type="text" value={builderGoal} onChange={(event) => setBuilderGoal(event.target.value)} placeholder="Show the feature, explain the problem, make a short..." />
+              </label>
+              <label>
+                Platform
+                <select value={contentMode} onChange={(event) => setContentMode(event.target.value)}>
+                  <option value="youtube_shorts">YouTube Short</option>
+                  <option value="tiktok">TikTok</option>
+                  <option value="product_showcase">Product Showcase</option>
+                  <option value="tutorial">Tutorial</option>
+                  <option value="promo_ad">Promo/Ad</option>
+                </select>
+              </label>
+              <label className="wide-field">
+                Key points to include
+                <textarea value={builderKeyPoints} onChange={(event) => setBuilderKeyPoints(event.target.value)} placeholder="Missing runtimes&#10;Anti-cheat conflicts&#10;Windows security settings" />
+              </label>
+              <label className="wide-field">
+                Desired vibe or extra instructions
+                <textarea value={builderNotes} onChange={(event) => setBuilderNotes(event.target.value)} placeholder="Premium blue/black, cinematic, smooth zooms, clear captions, keep it under 45 seconds..." />
+              </label>
+            </div>
+            <div className="review-actions">
+              <button className="primary-create" onClick={() => applyBeginnerPrompt(false)}><Sparkles size={15} /> Build Prompt</button>
+              <button onClick={() => applyBeginnerPrompt(true)}><Bot size={15} /> Build + Generate Plan</button>
+            </div>
+          </div>
+        )}
+        <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Describe the video you want in plain English..." />
+        <div className="ai-prompt-examples">
+          {promptExamples.map((example) => (
+            <button key={example} onClick={() => setPrompt(example)}>{example}</button>
+          ))}
+        </div>
+        <div className="ai-studio-controls">
+          <label>
+            Output mode
+            <select value={contentMode} onChange={(event) => setContentMode(event.target.value)}>
+              <option value="youtube_shorts">YouTube Shorts</option>
+              <option value="tiktok">TikTok</option>
+              <option value="product_showcase">Product Showcase</option>
+              <option value="tutorial">Tutorial</option>
+              <option value="promo_ad">Promo/Ad</option>
+            </select>
+          </label>
+          <label>
+            Style
+            <select value={contentTone} onChange={(event) => setContentTone(event.target.value)}>
+              {stylePresets.map((style) => <option key={style} value={style.toLowerCase()}>{style}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="review-actions">
+          <button className="primary-create" onClick={() => onStudioGenerate(prompt, contentTone, selectedTasks)}><Sparkles size={15} /> Generate Reviewable Plan</button>
+          <button onClick={onYouTubeShort}><Video size={15} /> YouTube Short Plan</button>
+          <button onClick={onAutonomousPipeline}><ListVideo size={15} /> Autonomous Plan</button>
+        </div>
+        <details className="mini-details">
+          <summary>Advanced generation tools</summary>
+          <button onClick={onGenerate}><FileJson size={15} /> Prompt to JSON Plan</button>
+        </details>
+      </section>
+
+      <section className="wide-panel ai-style-section">
+        <h2><Wand2 size={16} /> Style Presets</h2>
+        <div className="ai-style-grid">
+          {stylePresets.map((style) => (
+            <button className={contentTone === style.toLowerCase() ? "active" : ""} key={style} onClick={() => chooseStyle(style)}>
+              <strong>{style}</strong>
+              <span>{aiStyleDescription(style)}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="wide-panel ai-task-section">
+        <h2><CheckCircle2 size={16} /> AI Task Toggles</h2>
+        <div className="ai-task-grid">
+          {taskOptions.map((task) => (
+            <label className={selectedTasks.includes(task) ? "active" : ""} key={task}>
+              <input type="checkbox" checked={selectedTasks.includes(task)} onChange={() => toggleTask(task)} />
+              {task}
+            </label>
+          ))}
+        </div>
+      </section>
+
+      <section className="wide-panel ai-output-panel">
+        <div className="panel-head-row">
+          <h2><ListVideo size={16} /> AI Output Panel</h2>
+          <div className="review-actions">
+            <button disabled={!pendingAiPlan} className="primary-create" onClick={onApplyPendingPlan}><CheckCircle2 size={14} /> Apply AI Plan</button>
+            <button disabled={!pendingAiPlan} onClick={() => onContentRegenerate("scenes")}><RefreshCw size={14} /> Regenerate Scenes</button>
+            <button disabled={!pendingAiPlan} onClick={() => onContentApprove("all", "approved")}>Approve All</button>
+          </div>
+        </div>
+        {!planDetails ? (
+          <div className="ai-output-empty">
+            <strong>No AI plan generated yet</strong>
+            <span>Describe what you want, choose style/tasks, then generate a reviewable plan.</span>
+          </div>
+        ) : (
+          <div className="ai-output-grid">
+            <article>
+              <strong>Edit summary</strong>
+              <p>{planDetails.explanation}</p>
+            </article>
+            <article>
+              <strong>Scene list</strong>
+              {planDetails.scenes.slice(0, 6).map((scene) => <span key={scene.id}>{scene.name}: {scene.purpose}</span>)}
+            </article>
+            <article>
+              <strong>Suggested cuts</strong>
+              {planDetails.cuts.slice(0, 6).map((cut) => <span key={cut}>{cut}</span>)}
+            </article>
+            <article>
+              <strong>Caption plan</strong>
+              <span>{planDetails.summary.find((item) => item.label === "Caption style")?.value || "Readable captions"}</span>
+              <span>{selectedTasks.includes("Add captions") ? "Captions requested" : "Captions optional"}</span>
+            </article>
+            <article>
+              <strong>Effects plan</strong>
+              <span>{planDetails.summary.find((item) => item.label === "Transitions")?.value || "Clean cuts"}</span>
+              <span>{selectedTasks.filter((task) => /zoom|transition|b-roll|music/i.test(task)).join(", ") || "No extra effects toggled"}</span>
+            </article>
+            <article>
+              <strong>Export recommendation</strong>
+              <span>{planDetails.summary.find((item) => item.label === "Export settings")?.value || contentMode}</span>
+              <span>{generationReview?.readyForFinalRender ? "Approved for export review" : "Review before export"}</span>
+            </article>
+          </div>
+        )}
+        {generationLocks.length > 0 && <p className="muted">Locked sections: {generationLocks.join(", ")}</p>}
+        {notes && (
+          <details className="mini-details ai-advanced-reasoning">
+            <summary>Advanced: AI reasoning / logs</summary>
+            <pre className="mini-pre">{notes}</pre>
+          </details>
+        )}
+      </section>
+
+      <details className="wide-panel ai-advanced-tools">
+        <summary>Advanced AI tools</summary>
+        <div className="ai-advanced-grid">
+          <button onClick={onExplain}><FileJson size={15} /> Explain current project</button>
+          <button onClick={onRepair}><Wand2 size={15} /> Repair JSON</button>
+          <button onClick={onDirector}><Bot size={15} /> Run Director</button>
+          <button onClick={onSuggestTransitions}><RefreshCw size={15} /> Improve transitions</button>
+          <button onClick={onAddScene}><Plus size={15} /> Add scene</button>
+          <button onClick={onCaptions}><Captions size={15} /> Generate captions</button>
+          <button onClick={onResolveBroll}><Image size={15} /> Resolve B-roll</button>
+          <button onClick={onStoryboard}><LayoutTemplate size={15} /> Storyboard</button>
+          <button onClick={onAnalyzeAssets}><Search size={15} /> Analyze assets</button>
+        </div>
+      </details>
+
+      <details className="wide-panel ai-advanced-tools">
+        <summary>Director and storyboard details</summary>
+        <div className="ai-studio-secondary">
+          <DirectorWorkspace
+            goal={directorGoal}
+            setGoal={setDirectorGoal}
+            report={directorReport}
+            onRun={onDirector}
+            onResolveBroll={onResolveBroll}
+            onStoryboard={onStoryboard}
+            onAnalyzeAssets={onAnalyzeAssets}
+          />
+          <StoryboardPane storyboard={storyboard} onGenerate={onStoryboard} />
+        </div>
+      </details>
     </div>
   );
 }
 
 function CaptionsMode({
   project,
+  onProjectChange,
   onAutoCaption,
+  onImportCaptions,
   onPreview,
   onStyle,
   onBurnIn
 }: {
   project: ProjectData | null;
+  onProjectChange: (project: ProjectData) => void;
   onAutoCaption: () => void;
+  onImportCaptions: () => void;
   onPreview: () => void;
   onStyle: (style: string) => void;
   onBurnIn: () => void;
 }) {
-  const captionLayers = (project?.timeline || []).flatMap((scene) =>
-    (scene.layers || [])
-      .filter((layer) => layer.type === "caption" || layer.type === "captions" || layer.type === "text")
-      .map((layer) => ({ scene: scene.id, layer }))
-  );
+  const captionEntries = project ? collectCaptionEntries(project) : [];
+  const [selectedCaptionId, setSelectedCaptionId] = useState("");
+  const [shiftAmount, setShiftAmount] = useState(0.25);
+  const selectedCaption = captionEntries.find((entry) => entry.id === selectedCaptionId) || captionEntries[0] || null;
+  const settings = project?.project || {};
+  const safeZoneWarning = Boolean(project && selectedCaption && isLayerOutsideSafeZone(selectedCaption.layer, Number(settings.width || 1920), Number(settings.height || 1080)));
+
+  useEffect(() => {
+    if (!captionEntries.length) {
+      setSelectedCaptionId("");
+      return;
+    }
+    if (!captionEntries.some((entry) => entry.id === selectedCaptionId)) setSelectedCaptionId(captionEntries[0].id);
+  }, [captionEntries, selectedCaptionId]);
+
+  function updateSelected(patch: Record<string, unknown>) {
+    if (!project || !selectedCaption) return;
+    onProjectChange(updateCaptionEntry(project, selectedCaption, patch));
+  }
+
+  function shiftAll(delta: number) {
+    if (!project) return;
+    onProjectChange(shiftAllCaptions(project, delta));
+  }
+
+  function autoFixTiming() {
+    if (!project) return;
+    onProjectChange(autoFixCaptionTiming(project));
+  }
+
+  function splitSelected() {
+    if (!project || !selectedCaption) return;
+    onProjectChange(splitCaptionEntry(project, selectedCaption));
+  }
+
+  function mergeSelected() {
+    if (!project || !selectedCaption) return;
+    onProjectChange(mergeCaptionEntry(project, selectedCaption));
+  }
+
+  function exportCaptions(format: "srt" | "vtt") {
+    if (!project) return;
+    const entries = collectCaptionEntries(project).filter((entry) => entry.text.trim());
+    const text = format === "srt" ? captionsToSrt(entries) : captionsToVtt(entries);
+    downloadTextFile(`captions.${format}`, text);
+  }
+
   return (
     <div className="mode-page captions-mode">
-      <section className="wide-panel">
+      <section className="wide-panel caption-workflow-hero">
         <h2><Captions size={16} /> Caption Workflow</h2>
-        <div className="button-grid">
-          <button onClick={onAutoCaption}><Sparkles size={15} /> Auto-caption</button>
+        <p className="muted">Generate, import, style, time, and export captions without editing raw JSON. Captions remain JSON-backed and appear on the dedicated timeline lane.</p>
+        <div className="caption-tool-grid">
+          <button onClick={onAutoCaption}><Sparkles size={15} /> Auto-generate captions</button>
+          <button onClick={onImportCaptions}><Import size={15} /> Import SRT / VTT</button>
+          <button onClick={() => exportCaptions("srt")}><Download size={15} /> Export SRT</button>
+          <button onClick={() => exportCaptions("vtt")}><Download size={15} /> Export VTT</button>
           <button onClick={onBurnIn}><CheckCircle2 size={15} /> Burn-in captions</button>
           <button onClick={onPreview}><MonitorPlay size={15} /> Preview captions</button>
+          <button onClick={splitSelected} disabled={!selectedCaption}><Scissors size={15} /> Split caption</button>
+          <button onClick={mergeSelected} disabled={!selectedCaption}>Merge captions</button>
+          <button onClick={autoFixTiming} disabled={!project}>Auto-fix timing</button>
         </div>
       </section>
       <section className="wide-panel">
-        <h2>Caption Style Presets</h2>
-        <div className="template-modal-grid compact">
-          {["TikTok bold", "Clean subtitle", "Premium lower third", "Word highlight", "Minimal tech", "High contrast"].map((style) => (
-            <button key={style} onClick={() => onStyle(style)}><strong>{style}</strong><span>local JSON caption style</span></button>
+        <h2>Caption Styles</h2>
+        <div className="caption-style-grid">
+          {["Clean subtitles", "TikTok word highlight", "Gaming bold captions", "Podcast lower-third", "Educational captions", "Minimal cinematic captions"].map((style) => (
+            <button key={style} onClick={() => onStyle(style)}>
+              <strong>{style}</strong>
+              <span>{captionStyleDescription(style)}</span>
+            </button>
           ))}
         </div>
       </section>
-      <section className="wide-panel">
-        <h2>Subtitle Timing Editor</h2>
-        <div className="list">
-          {captionLayers.length === 0 && <span className="muted">No caption/text layers yet.</span>}
-          {captionLayers.slice(0, 16).map((item, index) => (
-            <div className="inspector-row" key={`${item.scene}-${index}`}>
-              <strong>{item.scene}</strong>
-              <span>{String(item.layer.text || item.layer.captionMode || item.layer.type)}</span>
-              <small>{String(item.layer.start || 0)}s / {String(item.layer.duration || "-")}s</small>
-            </div>
+
+      <section className="wide-panel caption-timeline-panel">
+        <div className="panel-head-row">
+          <h2>Caption Timeline Lane</h2>
+          <div className="caption-shift-controls">
+            <label>
+              shift
+              <input type="number" step="0.05" value={shiftAmount} onChange={(event) => setShiftAmount(Number(event.target.value) || 0)} />
+            </label>
+            <button onClick={() => shiftAll(-Math.abs(shiftAmount))}>Backward</button>
+            <button onClick={() => shiftAll(Math.abs(shiftAmount))}>Forward</button>
+          </div>
+        </div>
+        <div className="caption-lane-scroll">
+          <div className="caption-lane" style={{ width: Math.max(totalTimelineDuration(project || blankProject()), 12) * 90 }}>
+            {captionEntries.length === 0 && <span className="muted">No caption/text layers yet. Auto-generate or import captions to populate this lane.</span>}
+            {captionEntries.map((entry) => (
+              <button
+                className={selectedCaption?.id === entry.id ? "selected" : ""}
+                key={entry.id}
+                style={{ left: entry.absoluteStart * 90, width: Math.max(entry.duration * 90, 72) }}
+                onClick={() => setSelectedCaptionId(entry.id)}
+                title={entry.text}
+              >
+                <strong>{entry.sceneId}</strong>
+                <span>{entry.text || entry.type}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="wide-panel caption-editor-panel">
+        <h2>Edit Caption Timing</h2>
+        <div className="caption-list">
+          {captionEntries.length === 0 && <span className="muted">No captions available.</span>}
+          {captionEntries.slice(0, 32).map((entry) => (
+            <button className={selectedCaption?.id === entry.id ? "active" : ""} key={entry.id} onClick={() => setSelectedCaptionId(entry.id)}>
+              <strong>{formatTimestamp(entry.absoluteStart)}</strong>
+              <span>{entry.text || entry.type}</span>
+              <small>{entry.duration.toFixed(2)}s / {entry.sceneId}</small>
+            </button>
           ))}
         </div>
+      </section>
+      <section className="wide-panel caption-inspector-panel">
+        <h2>Caption Inspector</h2>
+        {!selectedCaption ? (
+          <p className="muted">Select a caption from the lane to edit style and timing.</p>
+        ) : (
+          <div className="caption-inspector-grid">
+            <label className="span-2">
+              Caption text
+              <textarea value={selectedCaption.text} onChange={(event) => updateSelected({ text: event.target.value })} />
+            </label>
+            <label>
+              Start
+              <input type="number" step="0.05" value={selectedCaption.localStart} onChange={(event) => updateSelected({ start: Number(event.target.value) || 0 })} />
+            </label>
+            <label>
+              Duration
+              <input type="number" step="0.05" value={selectedCaption.duration} onChange={(event) => updateSelected({ duration: Math.max(0.25, Number(event.target.value) || selectedCaption.duration) })} />
+            </label>
+            <label>
+              Font
+              <input value={String(selectedCaption.layer.fontFamily || selectedCaption.layer.font || "Arial")} onChange={(event) => updateSelected({ fontFamily: event.target.value })} />
+            </label>
+            <label>
+              Size
+              <input type="number" value={Number(selectedCaption.layer.fontSize || 54)} onChange={(event) => updateSelected({ fontSize: Number(event.target.value) || 54 })} />
+            </label>
+            <label>
+              Position
+              <select value={String(selectedCaption.layer.y || "bottom")} onChange={(event) => updateSelected({ y: event.target.value })}>
+                <option value="bottom">Bottom safe</option>
+                <option value="center">Center</option>
+                <option value="top">Top safe</option>
+                <option value="lower_third">Lower-third</option>
+              </select>
+            </label>
+            <label>
+              Color
+              <input type="color" value={normalizeColorInput(selectedCaption.layer.color, "#ffffff")} onChange={(event) => updateSelected({ color: event.target.value })} />
+            </label>
+            <label>
+              Stroke / outline
+              <input type="number" value={Number(selectedCaption.layer.strokeWidth || 2)} onChange={(event) => updateSelected({ strokeWidth: Number(event.target.value) || 0 })} />
+            </label>
+            <label>
+              Shadow
+              <select value={String(selectedCaption.layer.shadow || "soft")} onChange={(event) => updateSelected({ shadow: event.target.value })}>
+                <option value="none">None</option>
+                <option value="soft">Soft</option>
+                <option value="strong">Strong</option>
+              </select>
+            </label>
+            <label>
+              Background box
+              <select value={String(selectedCaption.layer.box ? "on" : "off")} onChange={(event) => updateSelected({ box: event.target.value === "on" })}>
+                <option value="on">On</option>
+                <option value="off">Off</option>
+              </select>
+            </label>
+            <label>
+              Animation
+              <select value={String((selectedCaption.layer.animation as Record<string, unknown> | undefined)?.in || "fade")} onChange={(event) => updateSelected({ animation: { ...((selectedCaption.layer.animation as Record<string, unknown>) || {}), in: event.target.value } })}>
+                <option value="fade">Fade</option>
+                <option value="slideUp">Slide up</option>
+                <option value="pop">Pop</option>
+                <option value="typewriter">Typewriter</option>
+              </select>
+            </label>
+            <label className="check-control">
+              <input type="checkbox" checked={Boolean(selectedCaption.layer.wordHighlight || selectedCaption.layer.highlightWords)} onChange={(event) => updateSelected({ wordHighlight: event.target.checked, highlightWords: event.target.checked })} />
+              Word-by-word highlight
+            </label>
+            {safeZoneWarning && <p className="warning-line span-2">Safe-zone warning: this caption may sit too close to the frame edge.</p>}
+          </div>
+        )}
+      </section>
+      <section className="wide-panel caption-help-panel">
+        <h2>Caption Lane Notes</h2>
+        <p className="muted">The main timeline already includes a dedicated Captions lane. These controls edit the same JSON-backed caption layers, so preview and final export stay in sync.</p>
       </section>
     </div>
   );
@@ -3194,43 +5319,112 @@ function CaptionsMode({
 function TemplatesMode({
   beginnerTemplates,
   templates,
-  onBeginnerTemplate,
-  onTemplate
+  onPreviewTemplate,
+  onApplyTemplate,
+  onCustomizeTemplate,
+  onDuplicateTemplate,
+  onSaveTemplate
 }: {
   beginnerTemplates: BeginnerTemplateCard[];
   templates: string[];
-  onBeginnerTemplate: (key: string) => void;
-  onTemplate: (key: string) => void;
+  onPreviewTemplate: (key: string) => void;
+  onApplyTemplate: (key: string) => void;
+  onCustomizeTemplate: (key: string) => void;
+  onDuplicateTemplate: (key: string) => void;
+  onSaveTemplate: (key: string) => void;
 }) {
-  const categories = ["Shorts", "TikTok", "Reels", "Gaming", "Podcast", "Educational", "Product promo"];
+  const categories = ["YouTube Shorts", "TikTok", "Instagram Reels", "Gaming Clips", "Podcast Clips", "Educational", "Product Promo", "Cinematic", "Meme / Reaction", "Tutorial"];
+  const [activeCategory, setActiveCategory] = useState(categories[0]);
+  const beginnerItems = beginnerTemplates.map((template) => {
+    const customizer = templateCustomizerFromKey(template.key, templates);
+    return {
+      key: template.key,
+      name: template.name,
+      category: categoryForTemplate(template.name),
+      platform: templatePlatformLabel(customizer.platform),
+      aspectRatio: template.aspectRatio,
+      duration: customizer.duration,
+      style: template.pacing,
+      requiredMedia: requiredMediaForTemplate(template.name),
+      usesCaptions: /caption|subtitle|title/i.test(template.captionStyle),
+      usesMusic: !/podcast|tutorial/i.test(template.name),
+      source: "premium"
+    };
+  });
+  const jsonItems = templates.map((template) => {
+    const customizer = templateCustomizerFromKey(template, templates);
+    return {
+      key: template,
+      name: customizer.name,
+      category: categoryForTemplate(customizer.name),
+      platform: templatePlatformLabel(customizer.platform),
+      aspectRatio: customizer.platform === "shorts" || customizer.platform === "tiktok" || customizer.platform === "instagram_reels" ? "9:16" : "16:9",
+      duration: customizer.duration,
+      style: customizer.pacing,
+      requiredMedia: requiredMediaForTemplate(customizer.name),
+      usesCaptions: /caption|lyric|tutorial|meme/i.test(customizer.name),
+      usesMusic: !/podcast|tutorial/i.test(customizer.name),
+      source: "json"
+    };
+  });
+  const items = [...beginnerItems, ...jsonItems];
+  const filtered = items.filter((item) => item.category === activeCategory);
   return (
     <div className="mode-page templates-mode">
       <section className="wide-panel">
-        <h2><LayoutTemplate size={16} /> Template Categories</h2>
+        <h2><LayoutTemplate size={16} /> Template Library</h2>
+        <p className="muted">Templates now create a reviewable edit plan first. Applying one will show scenes, cuts, captions, effects, and export settings before the timeline changes.</p>
         <div className="template-category-grid">
-          {categories.map((category) => <button key={category}>{category}</button>)}
-        </div>
-      </section>
-      <section className="wide-panel">
-        <h2>Premium Auto Templates</h2>
-        <div className="template-modal-grid">
-          {beginnerTemplates.map((template) => (
-            <button key={template.key} onClick={() => onBeginnerTemplate(template.key)}>
-              <strong>{template.name}</strong>
-              <span>{template.platform} / {template.aspectRatio} / {template.pacing}</span>
+          {categories.map((category) => (
+            <button className={activeCategory === category ? "active" : ""} key={category} onClick={() => setActiveCategory(category)}>
+              {category}
             </button>
           ))}
         </div>
       </section>
-      <section className="wide-panel">
-        <h2>JSON Templates</h2>
-        <div className="template-modal-grid compact">
-          {templates.map((template) => (
-            <button key={template} onClick={() => onTemplate(template)}>
-              <strong>{templateLabels[template] || template}</strong>
-              <span>source-of-truth JSON template</span>
-            </button>
+
+      <section className="wide-panel template-library-panel">
+        <div className="panel-head-row">
+          <h2>{activeCategory}</h2>
+          <span className="muted">{filtered.length} template(s)</span>
+        </div>
+        <div className="template-library-grid">
+          {filtered.map((template) => (
+            <article className="template-library-card" key={`${template.source}-${template.key}`}>
+              <div className={`template-preview-thumb ${template.category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
+                <span>{template.platform}</span>
+                <strong>{template.name}</strong>
+              </div>
+              <div className="template-card-body">
+                <div>
+                  <strong>{template.name}</strong>
+                  <small>{template.source === "json" ? "JSON template" : "Premium auto template"}</small>
+                </div>
+                <div className="template-card-meta">
+                  <span>Platform <strong>{template.platform}</strong></span>
+                  <span>Aspect <strong>{template.aspectRatio}</strong></span>
+                  <span>Duration <strong>{template.duration}s</strong></span>
+                  <span>Style <strong>{template.style}</strong></span>
+                  <span>Required media <strong>{template.requiredMedia}</strong></span>
+                  <span>Captions <strong>{template.usesCaptions ? "yes" : "no"}</strong></span>
+                  <span>Music <strong>{template.usesMusic ? "yes" : "no"}</strong></span>
+                </div>
+              </div>
+              <div className="template-card-actions">
+                <button onClick={() => onPreviewTemplate(template.key)}><Eye size={14} /> Preview</button>
+                <button onClick={() => onApplyTemplate(template.key)}><CheckCircle2 size={14} /> Apply</button>
+                <button onClick={() => onCustomizeTemplate(template.key)}><Wand2 size={14} /> Customize</button>
+                <button onClick={() => onDuplicateTemplate(template.key)}><FileJson size={14} /> Duplicate</button>
+                <button onClick={() => onSaveTemplate(template.key)}><Save size={14} /> Save Mine</button>
+              </div>
+            </article>
           ))}
+          {!filtered.length && (
+            <div className="template-empty-state">
+              <strong>No templates in this category yet</strong>
+              <span>Use another category or save a customized template into this group later.</span>
+            </div>
+          )}
         </div>
       </section>
     </div>
@@ -3253,7 +5447,7 @@ function ExportMode({
           <span>platform <strong>{project?.exportPreset || renderProps.preset}</strong></span>
         </div>
       </section>
-      <RenderPanel {...renderProps} />
+      <RenderPanel {...renderProps} project={project} />
     </div>
   );
 }
@@ -3448,6 +5642,183 @@ function InspectorContextPanel({
   );
 }
 
+function SuggestedEditsPanel({
+  suggestions,
+  savedSuggestions,
+  disabledTypes,
+  onApply,
+  onIgnore,
+  onSave,
+  onDisableType,
+  onEnableType
+}: {
+  suggestions: ProactiveSuggestion[];
+  savedSuggestions: ProactiveSuggestion[];
+  disabledTypes: string[];
+  onApply: (suggestion: ProactiveSuggestion) => void;
+  onIgnore: (suggestion: ProactiveSuggestion) => void;
+  onSave: (suggestion: ProactiveSuggestion) => void;
+  onDisableType: (action: string) => void;
+  onEnableType: (action: string) => void;
+}) {
+  const topSuggestions = suggestions.slice(0, 7);
+  return (
+    <section className="inspector-card suggested-edits-panel">
+      <div className="review-header">
+        <strong><Sparkles size={14} /> Suggested Edits</strong>
+        <span className="muted">{topSuggestions.length} active</span>
+      </div>
+
+      {topSuggestions.length ? (
+        <div className="suggested-edit-list">
+          {topSuggestions.map((suggestion) => (
+            <article className={`suggested-edit-card ${suggestion.severity}`} key={suggestion.id}>
+              <div className="suggested-edit-head">
+                <strong>{suggestion.title}</strong>
+                <span>{friendlyPresetName(suggestion.action)}</span>
+              </div>
+              <p>{suggestion.detail}</p>
+              <div className="suggested-edit-meta">
+                {suggestion.sceneId && <span>scene {suggestion.sceneId}</span>}
+                {typeof suggestion.time === "number" && <span>{formatTimestamp(suggestion.time)}</span>}
+                {typeof suggestion.duration === "number" && suggestion.duration > 0 && <span>{suggestion.duration.toFixed(1)}s</span>}
+              </div>
+              <div className="suggested-edit-actions">
+                <button onClick={() => onApply(suggestion)}><CheckCircle2 size={13} /> Apply</button>
+                <button onClick={() => onIgnore(suggestion)}><X size={13} /> Ignore</button>
+                <button onClick={() => onSave(suggestion)}><Save size={13} /> Save</button>
+                <button onClick={() => onDisableType(suggestion.action)}><Eye size={13} /> Disable type</button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-mini">
+          <strong>No active suggestions</strong>
+          <span>The assistant will surface cuts, captions, zooms, hooks, and pacing fixes as it analyzes the edit.</span>
+        </div>
+      )}
+
+      {(savedSuggestions.length > 0 || disabledTypes.length > 0) && (
+        <details className="mini-details">
+          <summary>Saved / disabled</summary>
+          {savedSuggestions.length > 0 && (
+            <div className="suggested-edit-saved">
+              <span className="muted">Saved</span>
+              {savedSuggestions.slice(-4).map((suggestion) => (
+                <button key={suggestion.id} onClick={() => onApply(suggestion)}>
+                  <CheckCircle2 size={12} /> {suggestion.title}
+                </button>
+              ))}
+            </div>
+          )}
+          {disabledTypes.length > 0 && (
+            <div className="disabled-suggestion-types">
+              <span className="muted">Disabled types</span>
+              {disabledTypes.map((type) => (
+                <button key={type} onClick={() => onEnableType(type)}>
+                  <Eye size={12} /> Enable {friendlyPresetName(type)}
+                </button>
+              ))}
+            </div>
+          )}
+        </details>
+      )}
+    </section>
+  );
+}
+
+function TaskManagerPanel({
+  tasks,
+  systemMetrics,
+  onPause,
+  onResume,
+  onCancel,
+  onClearCompleted,
+  onOpenRenderProgress
+}: {
+  tasks: ManagedTask[];
+  systemMetrics: SystemMetrics | null;
+  onPause: (task: ManagedTask) => void;
+  onResume: (task: ManagedTask) => void;
+  onCancel: (task: ManagedTask) => void;
+  onClearCompleted: () => void;
+  onOpenRenderProgress: () => void;
+}) {
+  const activeTasks = tasks.filter((task) => ["queued", "running", "paused"].includes(task.status));
+  const finishedTasks = tasks.filter((task) => !["queued", "running", "paused"].includes(task.status));
+  const visibleTasks = [...activeTasks, ...finishedTasks].slice(0, 8);
+  const taskKinds = [
+    "ai_analysis",
+    "caption_generation",
+    "audio_transcription",
+    "render_export",
+    "thumbnail_generation",
+    "media_import",
+    "proxy_generation",
+    "url_download"
+  ] as ManagedTaskKind[];
+  return (
+    <section className="inspector-card task-manager-panel">
+      <div className="review-header">
+        <strong><Clock size={14} /> Task Manager</strong>
+        <span className="muted">{activeTasks.length ? `${activeTasks.length} active` : "idle"}</span>
+      </div>
+      <div className="task-manager-metrics">
+        <span>CPU <strong>{formatPercent(systemMetrics?.cpuPercent)}</strong></span>
+        <span>GPU <strong>{systemMetrics?.gpuProcessActive ? formatPercent(systemMetrics.gpuPercent) : "-"}</strong></span>
+      </div>
+      <div className="task-kind-strip" title="Tracked background operation types">
+        {taskKinds.map((kind) => (
+          <span key={kind}>{taskKindLabel(kind)}</span>
+        ))}
+      </div>
+      <div className="task-list">
+        {visibleTasks.length === 0 && (
+          <div className="empty-mini">
+            <strong>No background tasks</strong>
+            <span>AI, captions, imports, proxies, thumbnails, URL downloads, and renders will appear here while they run.</span>
+          </div>
+        )}
+        {visibleTasks.map((task) => (
+          <article className={`task-card ${task.status}`} key={task.id}>
+            <div className="task-card-head">
+              <div>
+                <strong>{task.label}</strong>
+                <span>{taskKindLabel(task.kind)} / {taskStatusLabel(task.status)}</span>
+              </div>
+              <span>{Math.round(safePercent(task.progress))}%</span>
+            </div>
+            <div className="progressbar task-progress"><span style={{ width: `${safePercent(task.progress)}%` }} /></div>
+            <div className="task-detail-grid">
+              <span>stage <strong>{task.stage}</strong></span>
+              <span>ETA <strong>{formatEta(task.etaSeconds)}</strong></span>
+              <span>asset <strong>{task.currentAsset || task.detail || "current project"}</strong></span>
+              <span>scene <strong>{task.currentScene || "auto"}</strong></span>
+            </div>
+            {Boolean((task.errors || []).length || (task.warnings || []).length) && (
+              <div className="task-issues">
+                {(task.errors || []).slice(0, 2).map((error) => <span className="error" key={error}>{error}</span>)}
+                {(task.warnings || []).slice(0, 2).map((warning) => <span className="warning" key={warning}>{warning}</span>)}
+              </div>
+            )}
+            <div className="task-actions">
+              <button disabled={!task.canPause} onClick={() => onPause(task)}><Pause size={12} /> Pause</button>
+              <button disabled={!task.canResume && !(task.kind === "render_export" && task.status === "queued")} onClick={() => onResume(task)}><Play size={12} /> Resume</button>
+              <button disabled={!task.canCancel} onClick={() => onCancel(task)}><X size={12} /> Cancel</button>
+            </div>
+          </article>
+        ))}
+      </div>
+      <div className="task-footer-actions">
+        <button onClick={onOpenRenderProgress}><MonitorPlay size={13} /> Render details</button>
+        <button onClick={onClearCompleted}><Trash2 size={13} /> Clear done</button>
+      </div>
+      <p className="muted">Render/export jobs run through the local background queue, so you can keep editing while FFmpeg works.</p>
+    </section>
+  );
+}
+
 function EditorModal({
   modal,
   onClose,
@@ -3471,6 +5842,13 @@ function EditorModal({
   pendingAiPlan,
   generationLocks,
   aiNotes,
+  startupRecovery,
+  recoveryPoints,
+  versionComparison,
+  templateCustomizer,
+  setTemplateCustomizer,
+  onApplyTemplateCustomization,
+  onSaveTemplateCustomization,
   onImport,
   onOpenProject,
   onNewProject,
@@ -3488,6 +5866,9 @@ function EditorModal({
   onRegeneratePendingPlan,
   onSavePendingPlan,
   onCancelPendingPlan,
+  onRestoreStartupRecovery,
+  onRestoreRecoveryPoint,
+  onDismissStartupRecovery,
   onExplain,
   onRepair,
   onDirector,
@@ -3513,6 +5894,7 @@ function EditorModal({
   setGpu,
   logs,
   renderQueueItems,
+  systemMetrics,
   finalPreflight,
   onPreflight,
   onRepairPreflight,
@@ -3526,6 +5908,18 @@ function EditorModal({
   settings,
   setSettings,
   onSaveSettings,
+  leftRailOpen,
+  setLeftRailOpen,
+  rightRailOpen,
+  setRightRailOpen,
+  onApplyWorkspacePreset,
+  onSaveWorkspaceLayout,
+  onPopOutPanel,
+  onCompleteOnboarding,
+  onPickExportFolder,
+  onRunSystemCheck,
+  onShowShortcuts,
+  hardeningStatus,
   activityFeed,
   onOpenDocs
 }: {
@@ -3551,6 +5945,13 @@ function EditorModal({
   pendingAiPlan: PendingAiPlan | null;
   generationLocks: string[];
   aiNotes: string;
+  startupRecovery: StartupRecoveryState | null;
+  recoveryPoints: RecoveryPoint[];
+  versionComparison: VersionComparison | null;
+  templateCustomizer: TemplateCustomizerState | null;
+  setTemplateCustomizer: (value: TemplateCustomizerState | null | ((value: TemplateCustomizerState | null) => TemplateCustomizerState | null)) => void;
+  onApplyTemplateCustomization: () => void;
+  onSaveTemplateCustomization: () => void;
   onImport: () => void;
   onOpenProject: () => void;
   onNewProject: () => void;
@@ -3568,6 +5969,9 @@ function EditorModal({
   onRegeneratePendingPlan: () => void;
   onSavePendingPlan: () => void;
   onCancelPendingPlan: () => void;
+  onRestoreStartupRecovery: () => void;
+  onRestoreRecoveryPoint: (sourcePath: string) => void;
+  onDismissStartupRecovery: () => void;
   onExplain: () => void;
   onRepair: () => void;
   onDirector: () => void;
@@ -3593,6 +5997,7 @@ function EditorModal({
   setGpu: (value: boolean) => void;
   logs: string[];
   renderQueueItems: RenderQueueItem[];
+  systemMetrics: SystemMetrics | null;
   finalPreflight: FinalPreflightReport | null;
   onPreflight: () => void;
   onRepairPreflight: (mode: string, issueId?: string | null) => void;
@@ -3606,19 +6011,47 @@ function EditorModal({
   settings: AppSettings;
   setSettings: (value: AppSettings | ((value: AppSettings) => AppSettings)) => void;
   onSaveSettings: () => void;
+  leftRailOpen: boolean;
+  setLeftRailOpen: (value: boolean | ((current: boolean) => boolean)) => void;
+  rightRailOpen: boolean;
+  setRightRailOpen: (value: boolean | ((current: boolean) => boolean)) => void;
+  onApplyWorkspacePreset: (preset: WorkspacePreset) => void;
+  onSaveWorkspaceLayout: () => void;
+  onPopOutPanel: (panel: "preview" | "timeline" | "inspector") => void;
+  onCompleteOnboarding: (settings: AppSettings) => void;
+  onPickExportFolder: () => Promise<string | null>;
+  onRunSystemCheck: () => void;
+  onShowShortcuts: () => void;
+  hardeningStatus: HardeningStatus | null;
   activityFeed: ProcessingActivity[];
   onOpenDocs: () => void;
 }) {
+  const activeJob = activeRenderJob(renderQueueItems);
+  const renderProgress = safePercent(activeJob ? Number(activeJob.progressPercent || 0) : processing.progress);
+  const latestIssues = latestRenderIssues(logs, activityFeed);
+  const [onboardingDraft, setOnboardingDraft] = useState<AppSettings>(settings);
+  useEffect(() => {
+    if (modal === "onboarding") setOnboardingDraft(settings);
+  }, [modal, settings]);
+  const updateTemplateCustomizer = (patch: Partial<TemplateCustomizerState>) => {
+    setTemplateCustomizer((current) => current ? { ...current, ...patch } : current);
+  };
   if (!modal) return null;
   const titles: Record<Exclude<AppModal, null>, string> = {
     import: "Import Media",
     ai: "AI Edit Prompt",
     aiReview: "AI Plan Review",
     templates: "Template Picker",
+    templateCustomizer: "Template Customizer",
     captionStyle: "Caption Style Picker",
     export: "Export Presets",
     renderProgress: "Render Progress",
     errorRecovery: "Error Recovery",
+    recoveryPrompt: "Recover Unsaved Project?",
+    versionCompare: "Compare Versions",
+    onboarding: "Welcome",
+    shortcuts: "Keyboard Shortcuts",
+    workspace: "Workspace Layout",
     settings: "Project Settings",
     help: "Help",
     json: "Timeline JSON",
@@ -3701,6 +6134,116 @@ function EditorModal({
               ))}
             </div>
           )}
+          {modal === "templateCustomizer" && (
+            <div className="template-customizer-modal">
+              {!templateCustomizer ? (
+                <section className="wide-panel">
+                  <h2><LayoutTemplate size={16} /> No template selected</h2>
+                  <p className="muted">Choose a template from the Template Library first.</p>
+                </section>
+              ) : (
+                <>
+                  <section className="wide-panel template-customizer-hero">
+                    <div>
+                      <span className="eyebrow">Review-first template</span>
+                      <h2><LayoutTemplate size={17} /> {templateCustomizer.name}</h2>
+                      <p className="muted">Customize the template, then generate a Template Plan Review. The timeline is not changed until you click Apply in the review.</p>
+                    </div>
+                    <div className="review-actions">
+                      <button className="primary-create" onClick={onApplyTemplateCustomization}><CheckCircle2 size={14} /> Generate Plan Review</button>
+                      <button onClick={onSaveTemplateCustomization}><Save size={14} /> Save Preset</button>
+                      <button onClick={onClose}><X size={14} /> Cancel</button>
+                    </div>
+                  </section>
+                  <section className="wide-panel">
+                    <h2><Wand2 size={16} /> Template Customizer</h2>
+                    <div className="template-customizer-grid">
+                      <label>
+                        Platform
+                        <select value={templateCustomizer.platform} onChange={(event) => updateTemplateCustomizer({ platform: event.target.value })}>
+                          <option value="shorts">YouTube Shorts</option>
+                          <option value="tiktok">TikTok</option>
+                          <option value="instagram_reels">Instagram Reels</option>
+                          <option value="youtube">YouTube normal video</option>
+                          <option value="square">Square social</option>
+                        </select>
+                      </label>
+                      <label>
+                        Duration
+                        <input type="number" min={5} max={180} value={templateCustomizer.duration} onChange={(event) => updateTemplateCustomizer({ duration: Number(event.target.value) || templateCustomizer.duration })} />
+                      </label>
+                      <label>
+                        Caption style
+                        <select value={templateCustomizer.captionStyle} onChange={(event) => updateTemplateCustomizer({ captionStyle: event.target.value })}>
+                          <option>Large captions</option>
+                          <option>Polished lower thirds</option>
+                          <option>Quiet UI captions</option>
+                          <option>Short hype captions</option>
+                          <option>Safe readable captions</option>
+                          <option>Cinematic title captions</option>
+                        </select>
+                      </label>
+                      <label>
+                        Pacing
+                        <select value={templateCustomizer.pacing} onChange={(event) => updateTemplateCustomizer({ pacing: event.target.value })}>
+                          <option>Fast hook-body-payoff</option>
+                          <option>Smooth feature reveals</option>
+                          <option>Step-by-step</option>
+                          <option>High-energy highlights</option>
+                          <option>Slow build and payoff</option>
+                          <option>Restrained problem/solution</option>
+                        </select>
+                      </label>
+                      <label>
+                        Transition style
+                        <select value={templateCustomizer.transitionStyle} onChange={(event) => updateTemplateCustomizer({ transitionStyle: event.target.value })}>
+                          <option>clean cuts</option>
+                          <option>crossfade</option>
+                          <option>smooth cinematic</option>
+                          <option>fast cuts</option>
+                          <option>flash cuts</option>
+                          <option>slide reveals</option>
+                        </select>
+                      </label>
+                      <label>
+                        Music intensity
+                        <select value={templateCustomizer.musicIntensity} onChange={(event) => updateTemplateCustomizer({ musicIntensity: event.target.value })}>
+                          <option value="low">Low</option>
+                          <option value="medium">Medium</option>
+                          <option value="high">High</option>
+                        </select>
+                      </label>
+                      <label>
+                        Intro/outro style
+                        <select value={templateCustomizer.introOutroStyle} onChange={(event) => updateTemplateCustomizer({ introOutroStyle: event.target.value })}>
+                          <option>logo reveal + CTA</option>
+                          <option>hook title + quick CTA</option>
+                          <option>step title + recap</option>
+                          <option>cinematic title + fadeout</option>
+                          <option>minimal title + soft fade</option>
+                        </select>
+                      </label>
+                      <label className="check-control">
+                        <input type="checkbox" checked={templateCustomizer.applyBranding} onChange={(event) => updateTemplateCustomizer({ applyBranding: event.target.checked })} />
+                        Apply branding/logo when available
+                      </label>
+                    </div>
+                  </section>
+                  <section className="wide-panel">
+                    <h2><ListVideo size={16} /> Template Plan Review Will Include</h2>
+                    <div className="ai-plan-summary-grid">
+                      <span>Scenes <strong>intro, body, payoff, outro</strong></span>
+                      <span>Cuts <strong>{templateCustomizer.pacing}</strong></span>
+                      <span>Captions <strong>{templateCustomizer.captionStyle}</strong></span>
+                      <span>Effects <strong>{templateCustomizer.transitionStyle}</strong></span>
+                      <span>Music <strong>{templateCustomizer.musicIntensity}</strong></span>
+                      <span>Export <strong>{templatePlatformLabel(templateCustomizer.platform)}</strong></span>
+                    </div>
+                  </section>
+                </>
+              )}
+            </div>
+          )}
           {modal === "captionStyle" && (
             <div className="caption-style-picker">
               {["TikTok Bold", "Clean Lower Third", "Podcast Subtitles", "Educational Clear", "Cinematic Title", "Gaming Hype"].map((style) => (
@@ -3728,6 +6271,7 @@ function EditorModal({
               setGpu={setGpu}
               logs={logs}
               renderQueueItems={renderQueueItems}
+              project={project}
               finalPreflight={finalPreflight}
               onPreflight={onPreflight}
               onRepairPreflight={onRepairPreflight}
@@ -3742,14 +6286,24 @@ function EditorModal({
           )}
           {modal === "renderProgress" && (
             <div className="render-progress-modal">
-              <section className="wide-panel">
-                <h2><Play size={16} /> Active Processing</h2>
+              <section className="wide-panel render-activity-hero">
+                <h2><Play size={16} /> Render Activity</h2>
                 <div className="progress-line">
-                  <strong>{processing.currentStage}</strong>
-                  <span>{safePercent(processing.progress).toFixed(0)}%</span>
+                  <strong>{activeJob?.currentScene ? `Rendering ${activeJob.currentScene}` : processing.currentStage}</strong>
+                  <span>{renderProgress.toFixed(0)}%</span>
                 </div>
-                <div className="progressbar"><span style={{ width: `${safePercent(processing.progress)}%` }} /></div>
-                <p className="muted">{processing.activeTask}</p>
+                <div className="progressbar"><span style={{ width: `${renderProgress}%` }} /></div>
+                <div className="render-activity-grid">
+                  <span>current task <strong>{activeJob?.label || processing.activeTask}</strong></span>
+                  <span>rendering clip <strong>{activeJob?.currentScene || processing.currentScene || "waiting"}</strong></span>
+                  <span>AI stage <strong>{processing.currentStage}</strong></span>
+                  <span>ETA <strong>{formatEta(activeJob?.estimatedRemainingSeconds ?? processing.etaSeconds)}</strong></span>
+                  <span>CPU <strong>{formatPercent(systemMetrics?.cpuPercent)}</strong></span>
+                  <span>GPU <strong>{systemMetrics?.gpuProcessActive ? formatPercent(systemMetrics.gpuPercent) : gpu ? "enabled" : "off"}</strong></span>
+                  <span>memory <strong>{formatMemory(systemMetrics)}</strong></span>
+                  <span>encoder <strong>{gpu ? "GPU preferred" : "CPU"}</strong></span>
+                </div>
+                <p className="muted">{systemMetrics?.gpuMode || "Local activity updates keep the app responsive while work runs."}</p>
               </section>
               <section className="wide-panel">
                 <h2><Clock size={16} /> Render Queue</h2>
@@ -3758,14 +6312,29 @@ function EditorModal({
                   {renderQueueItems.map((job) => (
                     <div className="queue-row" key={job.runId}>
                       <span>{job.label}</span>
-                      <small className={job.status}>{job.status} {Number(job.progressPercent || 0).toFixed(0)}%</small>
+                      <small>{job.currentScene || job.outputPath}</small>
+                      <small className={job.status}>{job.status} {Number(job.progressPercent || 0).toFixed(0)}% | ETA {formatEta(job.estimatedRemainingSeconds)}</small>
                     </div>
                   ))}
                 </div>
                 <div className="review-actions">
                   <button onClick={onPauseQueue}><Pause size={14} /> Pause</button>
                   <button onClick={onResumeQueue}><Play size={14} /> Resume</button>
+                  <button disabled={!activeJob} onClick={() => activeJob && onCancelJob(activeJob.runId)}>Cancel export</button>
                   <button onClick={onOpenOutput}><FolderOpen size={14} /> Open output folder</button>
+                </div>
+              </section>
+              <section className="wide-panel">
+                <h2>Errors / Warnings</h2>
+                <div className="activity-feed compact-feed">
+                  {latestIssues.length === 0 && <span className="muted">No current errors or warnings.</span>}
+                  {latestIssues.map((item) => (
+                    <div className={`activity-row ${item.kind}`} key={item.id}>
+                      <strong>{activityGlyph(item.kind)}</strong>
+                      <span>{item.label}</span>
+                      <small>{item.detail || item.time}</small>
+                    </div>
+                  ))}
                 </div>
               </section>
               <section className="wide-panel">
@@ -3799,38 +6368,139 @@ function EditorModal({
                       <div className="queue-row" key={issue.id}>
                         <span>{issue.message}</span>
                         <small className={issue.blocking ? "failed" : "running"}>{issue.severity}</small>
+                        {issue.safeAutoFix && !issue.accepted && <button onClick={() => onRepairPreflight("selected", issue.id)}>Approve fix</button>}
+                        {!issue.accepted && <button onClick={() => onRepairPreflight("ignore", issue.id)}>Accept</button>}
+                        {issue.accepted && <small className="status-pill ok">accepted</small>}
                       </div>
                     ))}
                   </div>
                 </section>
               ) : null}
               <section className="wide-panel">
-                <h2>Safe Fixes</h2>
+                <h2>Manual Recovery</h2>
+                <p className="muted">Preflight fixes require approval on each issue. The app will not apply bulk repairs automatically.</p>
                 <div className="review-actions">
                   <button onClick={onRepair}><Wand2 size={14} /> Repair JSON</button>
                   <button onClick={onPreflight}><CheckCircle2 size={14} /> Run preflight</button>
-                  <button onClick={() => onRepairPreflight("safe_all")}><Wand2 size={14} /> Fix safe preflight issues</button>
-                  <button onClick={() => onRepairPreflight("accept_all")}><CheckCircle2 size={14} /> Accept remaining warnings</button>
                 </div>
               </section>
             </div>
           )}
+          {modal === "recoveryPrompt" && (
+            <div className="error-recovery-modal">
+              <section className="wide-panel recovery-hero">
+                <h2><RefreshCw size={16} /> Recover unsaved project?</h2>
+                <p className="muted">The previous session may not have closed cleanly. You can restore the latest autosave, choose another recovery point, or continue without changing the current project.</p>
+                <div className="ai-plan-summary-grid">
+                  <span>Last saved <strong>{startupRecovery?.lastSavedAt || startupRecovery?.latestRecovery?.timestamp || "unknown"}</strong></span>
+                  <span>Latest point <strong>{startupRecovery?.latestRecovery?.type || "none"}</strong></span>
+                  <span>Size <strong>{formatBytes(Number(startupRecovery?.latestRecovery?.size || 0))}</strong></span>
+                  <span>Status <strong>{startupRecovery?.crashed ? "crash recovery available" : "manual recovery"}</strong></span>
+                </div>
+                <div className="review-actions">
+                  <button className="primary-create" disabled={!startupRecovery?.latestRecovery} onClick={onRestoreStartupRecovery}><RefreshCw size={14} /> Restore Latest</button>
+                  <button onClick={onDismissStartupRecovery}><X size={14} /> Continue Without Restoring</button>
+                </div>
+              </section>
+              <section className="wide-panel">
+                <h2><Clock size={16} /> Recovery Points</h2>
+                <div className="list">
+                  {recoveryPoints.length === 0 && <span className="muted">No recovery points available.</span>}
+                  {recoveryPoints.slice(0, 8).map((point) => (
+                    <div className="history-row" key={point.path}>
+                      <strong>{point.type}</strong>
+                      <span>{point.timestamp || point.path}</span>
+                      <button onClick={() => onRestoreRecoveryPoint(point.path)}>Restore</button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+          )}
+          {modal === "versionCompare" && (
+            <div className="error-recovery-modal">
+              <section className="wide-panel">
+                <h2><FileJson size={16} /> Version Comparison</h2>
+                {!versionComparison ? (
+                  <p className="muted">Choose Compare from Version History to inspect a snapshot.</p>
+                ) : (
+                  <>
+                    <div className="ai-plan-summary-grid">
+                      <span>Version <strong>{versionComparison.versionId}</strong></span>
+                      <span>Scenes <strong>{versionComparison.old.scenes} {"->"} {versionComparison.new.scenes}</strong></span>
+                      <span>Assets <strong>{versionComparison.old.assets} {"->"} {versionComparison.new.assets}</strong></span>
+                      <span>Duration <strong>{Number(versionComparison.old.duration || 0).toFixed(1)}s {"->"} {Number(versionComparison.new.duration || 0).toFixed(1)}s</strong></span>
+                    </div>
+                    <div className="list">
+                      {versionComparison.changes.map((change) => (
+                        <div className="queue-row" key={change}><span>{change}</span><small>diff</small></div>
+                      ))}
+                    </div>
+                    <details className="mini-details ai-advanced-reasoning">
+                      <summary>Advanced: JSON snapshots</summary>
+                      <div className="version-json-compare">
+                        <pre className="mini-pre">{versionComparison.oldText}</pre>
+                        <pre className="mini-pre">{versionComparison.newText}</pre>
+                      </div>
+                    </details>
+                  </>
+                )}
+              </section>
+            </div>
+          )}
+          {modal === "onboarding" && (
+            <OnboardingFlow
+              draft={onboardingDraft}
+              setDraft={setOnboardingDraft}
+              hardeningStatus={hardeningStatus}
+              onPickExportFolder={async () => {
+                const folder = await onPickExportFolder();
+                if (folder) setOnboardingDraft((current) => ({ ...current, defaultExportFolder: folder }));
+              }}
+              onRunSystemCheck={onRunSystemCheck}
+              onComplete={() => onCompleteOnboarding(onboardingDraft)}
+              onOpenShortcuts={onShowShortcuts}
+            />
+          )}
+          {modal === "shortcuts" && (
+            <KeyboardShortcutsPanel />
+          )}
+          {modal === "workspace" && (
+            <WorkspacePersonalizationPanel
+              settings={settings}
+              setSettings={setSettings}
+              leftRailOpen={leftRailOpen}
+              setLeftRailOpen={setLeftRailOpen}
+              rightRailOpen={rightRailOpen}
+              setRightRailOpen={setRightRailOpen}
+              onApplyPreset={onApplyWorkspacePreset}
+              onSaveLayout={onSaveWorkspaceLayout}
+              onPopOutPanel={onPopOutPanel}
+            />
+          )}
           {modal === "settings" && (
             <div className="settings-modal">
-              <label>Theme<select value={settings.theme} onChange={(event) => setSettings((current) => ({ ...current, theme: event.target.value as AppSettings["theme"] }))}><option value="graphite">graphite</option><option value="midnight">midnight</option><option value="light">light</option></select></label>
+              <label>Theme<select value={settings.theme} onChange={(event) => setSettings((current) => ({ ...current, theme: event.target.value as AppSettings["theme"] }))}><option value="aegis">Aegis dark</option><option value="midnight">Midnight</option><option value="slate">Slate</option><option value="high_contrast">High contrast</option><option value="graphite">Graphite legacy</option><option value="light">Light</option></select></label>
+              <label>UI scale<select value={settings.uiScale} onChange={(event) => setSettings((current) => ({ ...current, uiScale: event.target.value as UiScale }))}><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option><option value="auto">Auto DPI</option></select></label>
+              <label>Accent color<input type="text" value={settings.accentColor} onChange={(event) => setSettings((current) => ({ ...current, accentColor: event.target.value }))} /></label>
+              <label>Default workflow<select value={settings.defaultWorkflow} onChange={(event) => setSettings((current) => ({ ...current, defaultWorkflow: event.target.value as AppSettings["defaultWorkflow"] }))}><option value="quick">Quick Create</option><option value="guided">Guided Create</option><option value="advanced">Advanced Editor</option></select></label>
+              <label>Default platform<select value={settings.defaultPlatform} onChange={(event) => setSettings((current) => ({ ...current, defaultPlatform: event.target.value }))}><option value="youtube_shorts">YouTube Shorts</option><option value="tiktok">TikTok</option><option value="instagram_reels">Reels</option><option value="standard">Standard video</option></select></label>
+              <label>Default style<select value={settings.defaultStyle} onChange={(event) => setSettings((current) => ({ ...current, defaultStyle: event.target.value }))}><option value="clean">Clean</option><option value="gaming">Gaming</option><option value="cinematic">Cinematic</option><option value="podcast">Podcast</option><option value="educational">Educational</option><option value="hype">Hype</option></select></label>
+              <label>Default export folder<input value={settings.defaultExportFolder || ""} readOnly placeholder="Use app exports folder" /></label>
+              <button onClick={async () => {
+                const folder = await onPickExportFolder();
+                if (folder) setSettings((current) => ({ ...current, defaultExportFolder: folder }));
+              }}><FolderOpen size={15} /> Choose export folder</button>
               <label>Preview start time<input type="number" value={settings.previewTimeSeconds} onChange={(event) => setSettings((current) => ({ ...current, previewTimeSeconds: Number(event.target.value) }))} /></label>
               <label><input type="checkbox" checked={settings.autosave} onChange={(event) => setSettings((current) => ({ ...current, autosave: event.target.checked }))} /> autosave</label>
               <label><input type="checkbox" checked={settings.keyboardShortcuts} onChange={(event) => setSettings((current) => ({ ...current, keyboardShortcuts: event.target.checked }))} /> keyboard shortcuts</label>
+              <label><input type="checkbox" checked={settings.beginnerTips} onChange={(event) => setSettings((current) => ({ ...current, beginnerTips: event.target.checked }))} /> beginner tips</label>
               <button onClick={onSaveSettings}><Save size={15} /> Save settings</button>
               <small className="muted">Project: {projectPath || "unsaved"} / {project?.timeline?.length || 0} scenes</small>
             </div>
           )}
           {modal === "help" && (
-            <div className="modal-grid">
-              <button onClick={onOpenDocs}><CircleHelp size={16} /> Open bundled local docs</button>
-              <button onClick={() => alert("Shortcuts: Ctrl+S save, Ctrl+O open, Ctrl+Enter preview render. JSON editor supports Monaco shortcuts.")}><Keyboard size={16} /> Keyboard shortcuts</button>
-              <span className="muted">All editing remains local-first. JSON is still the source of truth; this shell only reorganizes access to the existing engine.</span>
-            </div>
+            <HelpCenter onOpenDocs={onOpenDocs} onOpenShortcuts={onShowShortcuts} />
           )}
           {modal === "json" && (
             <JsonEditor text={projectText} schemaReady={engineReady} onChange={onJsonChange} onMount={onEditorMount} validation={validation} />
@@ -3887,6 +6557,7 @@ function AiPlanReviewModal({
   const parsedPending = pendingAiPlan ? parseProject(pendingAiPlan.text).data : null;
   const review = pendingAiPlan?.review || fallbackReview;
   const details = pendingAiPlan && parsedPending ? buildAiPlanDisplay(pendingAiPlan, parsedPending) : null;
+  const isTemplatePlan = pendingAiPlan?.title.toLowerCase().includes("template");
 
   if (!pendingAiPlan || !details) {
     return (
@@ -3910,12 +6581,12 @@ function AiPlanReviewModal({
       <section className="wide-panel ai-plan-hero">
         <div>
           <span className="eyebrow">{pendingAiPlan.title}</span>
-          <h2><Sparkles size={17} /> AI Edit Plan</h2>
+          <h2><Sparkles size={17} /> {isTemplatePlan ? "Template Plan Review" : "AI Edit Plan"}</h2>
           <p>{details.explanation}</p>
         </div>
         <div className="review-actions">
-          <button className="primary-create" onClick={onApply}><CheckCircle2 size={14} /> Apply Plan</button>
-          <button onClick={onEdit}><Wand2 size={14} /> Edit Plan</button>
+          <button className="primary-create" onClick={onApply}><CheckCircle2 size={14} /> {isTemplatePlan ? "Apply" : "Apply Plan"}</button>
+          <button onClick={onEdit}><Wand2 size={14} /> {isTemplatePlan ? "Modify" : "Edit Plan"}</button>
           <button onClick={onRegenerate}><RefreshCw size={14} /> Regenerate</button>
           <button onClick={onSaveTemplate}><Save size={14} /> Save as Template</button>
           <button onClick={onCancel}><X size={14} /> Cancel</button>
@@ -3936,8 +6607,12 @@ function AiPlanReviewModal({
 
       <section className="wide-panel">
         <h2><Bot size={16} /> Simple Explanation</h2>
-        <p className="muted">{review?.reasoning || aiNotes || details.reasoning}</p>
+        <p className="muted">{details.explanation}</p>
         {review?.warnings.length ? <p className="error">{review.warnings.join(" | ")}</p> : null}
+        <details className="mini-details ai-advanced-reasoning">
+          <summary>Advanced: AI reasoning / logs</summary>
+          <pre className="mini-pre">{review?.reasoning || aiNotes || details.reasoning}</pre>
+        </details>
       </section>
 
       <section className="wide-panel">
@@ -3976,6 +6651,402 @@ function AiPlanReviewModal({
         </div>
       </section>
     </div>
+  );
+}
+
+function WorkspacePersonalizationPanel({
+  settings,
+  setSettings,
+  leftRailOpen,
+  setLeftRailOpen,
+  rightRailOpen,
+  setRightRailOpen,
+  onApplyPreset,
+  onSaveLayout,
+  onPopOutPanel
+}: {
+  settings: AppSettings;
+  setSettings: (value: AppSettings | ((value: AppSettings) => AppSettings)) => void;
+  leftRailOpen: boolean;
+  setLeftRailOpen: (value: boolean | ((current: boolean) => boolean)) => void;
+  rightRailOpen: boolean;
+  setRightRailOpen: (value: boolean | ((current: boolean) => boolean)) => void;
+  onApplyPreset: (preset: WorkspacePreset) => void;
+  onSaveLayout: () => void;
+  onPopOutPanel: (panel: "preview" | "timeline" | "inspector") => void;
+}) {
+  const presets: Array<{ key: WorkspacePreset; title: string; detail: string }> = [
+    { key: "beginner", title: "Beginner workspace", detail: "Preview-first, fewer panels, larger controls." },
+    { key: "ai", title: "AI-focused workspace", detail: "AI Studio and inspector visible for plan review." },
+    { key: "editing", title: "Editing workspace", detail: "Media, preview, timeline, and inspector balanced." },
+    { key: "captions", title: "Caption workspace", detail: "Caption tools and detailed settings stay close." },
+    { key: "export", title: "Export workspace", detail: "Final checks, presets, and inspector emphasized." },
+    { key: "minimal", title: "Minimal workspace", detail: "Maximum focus with side panels collapsed." }
+  ];
+  return (
+    <div className="workspace-settings-modal">
+      <section className="wide-panel workspace-hero">
+        <div>
+          <span className="eyebrow">Workspace personalization</span>
+          <h2><Maximize2 size={17} /> Layout and panels</h2>
+          <p className="muted">These controls only rearrange the editor shell. They do not change the project JSON, render engine, timeline logic, or AI workflow.</p>
+        </div>
+        <div className="review-actions">
+          <button className="primary-create" onClick={onSaveLayout}><Save size={15} /> Save Layout</button>
+          <button onClick={() => onPopOutPanel("preview")}><MonitorPlay size={15} /> Pop Out Preview</button>
+          <button onClick={() => onPopOutPanel("timeline")}><ListVideo size={15} /> Pop Out Timeline</button>
+          <button onClick={() => onPopOutPanel("inspector")}><Settings size={15} /> Pop Out Inspector</button>
+        </div>
+      </section>
+
+      <section className="wide-panel">
+        <h2><LayoutTemplate size={16} /> Workspace Presets</h2>
+        <div className="workspace-preset-grid">
+          {presets.map((preset) => (
+            <button className={settings.workspacePreset === preset.key ? "active" : ""} key={preset.key} onClick={() => onApplyPreset(preset.key)}>
+              <strong>{preset.title}</strong>
+              <span>{preset.detail}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="wide-panel">
+        <h2><Scissors size={16} /> Dockable Panels</h2>
+        <div className="workspace-control-grid">
+          <label>
+            Panel arrangement
+            <select value={settings.panelDock} onChange={(event) => setSettings((current) => ({ ...current, panelDock: event.target.value as WorkspacePanelDock }))}>
+              <option value="standard">Media left / Inspector right</option>
+              <option value="inspector_left">Inspector left / Media right</option>
+              <option value="media_right">Preview first / Media right</option>
+              <option value="preview_focus">Preview focus</option>
+            </select>
+          </label>
+          <label>
+            Media panel width
+            <input type="range" min={210} max={420} value={settings.leftRailWidth} onChange={(event) => setSettings((current) => ({ ...current, leftRailWidth: Number(event.target.value) }))} />
+            <span>{settings.leftRailWidth}px</span>
+          </label>
+          <label>
+            Inspector width
+            <input type="range" min={280} max={520} value={settings.rightRailWidth} onChange={(event) => setSettings((current) => ({ ...current, rightRailWidth: Number(event.target.value) }))} />
+            <span>{settings.rightRailWidth}px</span>
+          </label>
+          <label className="check-control">
+            <input type="checkbox" checked={leftRailOpen} onChange={(event) => setLeftRailOpen(event.target.checked)} />
+            Media sidebar visible
+          </label>
+          <label className="check-control">
+            <input type="checkbox" checked={rightRailOpen} onChange={(event) => setRightRailOpen(event.target.checked)} />
+            Inspector visible
+          </label>
+        </div>
+      </section>
+
+      <section className="wide-panel">
+        <h2><Wand2 size={16} /> Theme and Scaling</h2>
+        <div className="workspace-control-grid">
+          <label>
+            Theme
+            <select value={settings.theme} onChange={(event) => setSettings((current) => ({ ...current, theme: event.target.value as AppTheme }))}>
+              <option value="aegis">Aegis dark</option>
+              <option value="midnight">Midnight</option>
+              <option value="slate">Slate</option>
+              <option value="high_contrast">High contrast</option>
+              <option value="graphite">Graphite legacy</option>
+              <option value="light">Light</option>
+            </select>
+          </label>
+          <label>
+            Accent color
+            <input type="color" value={settings.accentColor || "#6db5a5"} onChange={(event) => setSettings((current) => ({ ...current, accentColor: event.target.value }))} />
+          </label>
+          <label>
+            UI scale
+            <select value={settings.uiScale} onChange={(event) => setSettings((current) => ({ ...current, uiScale: event.target.value as UiScale }))}>
+              <option value="small">Small</option>
+              <option value="medium">Medium</option>
+              <option value="large">Large</option>
+              <option value="auto">Auto DPI scaling</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section className="wide-panel">
+        <h2><MonitorPlay size={16} /> Multi-Monitor Windows</h2>
+        <p className="muted">Pop-out windows remember their last size and monitor position locally. Use them for preview, timeline, or inspector while keeping the main editor intact.</p>
+        <div className="workspace-popout-grid">
+          {(["preview", "timeline", "inspector"] as const).map((panel) => {
+            const bounds = settings.monitorPositions?.[panel];
+            return (
+              <button key={panel} onClick={() => onPopOutPanel(panel)}>
+                <strong>{friendlyPresetName(panel)}</strong>
+                <span>{bounds ? `${bounds.width}x${bounds.height}${typeof bounds.x === "number" ? ` @ ${bounds.x},${bounds.y}` : ""}` : "No saved position yet"}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function OnboardingFlow({
+  draft,
+  setDraft,
+  hardeningStatus,
+  onPickExportFolder,
+  onRunSystemCheck,
+  onComplete,
+  onOpenShortcuts
+}: {
+  draft: AppSettings;
+  setDraft: (value: AppSettings | ((value: AppSettings) => AppSettings)) => void;
+  hardeningStatus: HardeningStatus | null;
+  onPickExportFolder: () => void;
+  onRunSystemCheck: () => void;
+  onComplete: () => void;
+  onOpenShortcuts: () => void;
+}) {
+  const dependency = hardeningStatus?.dependency as Record<string, unknown> | undefined;
+  const ffmpeg = dependency?.ffmpeg as Record<string, unknown> | undefined;
+  const readiness = dependency?.readiness as Record<string, unknown> | undefined;
+  const performance = hardeningStatus?.performance as Record<string, unknown> | undefined;
+  const cachePerf = performance?.cache as Record<string, unknown> | undefined;
+  const gpuAvailable = Boolean(ffmpeg?.supportsGpuEncoding);
+  const checks = [
+    { label: "FFmpeg available", value: Boolean(ffmpeg?.installed), detail: String(ffmpeg?.version || "Run system check") },
+    { label: "GPU encoding", value: gpuAvailable, detail: gpuAvailable ? "available" : "optional / not detected" },
+    { label: "Storage/cache", value: true, detail: cachePerf?.totalBytes ? formatBytes(Number(cachePerf.totalBytes)) : "local cache ready" },
+    { label: "Supported formats", value: true, detail: "MP4, MOV, MKV, WebM, PNG, JPG, MP3, WAV, FLAC" },
+    { label: "Permissions", value: Boolean(readiness?.ready ?? true), detail: readiness?.ready ? "ready" : "review warnings" }
+  ];
+  return (
+    <div className="onboarding-flow">
+      <section className="wide-panel onboarding-hero">
+        <span className="eyebrow">First launch setup</span>
+        <h2><Sparkles size={18} /> Welcome to Automatic Video Editor</h2>
+        <p className="muted">Pick a comfortable workflow now. You can still use every advanced tool later; this only sets friendly defaults.</p>
+      </section>
+
+      <section className="wide-panel">
+        <h2>1. Choose workflow <button title="Quick Create is for one-click videos. Guided Create walks step-by-step. Advanced Editor opens the full timeline and JSON tools.">What does this do?</button></h2>
+        <div className="choice-grid">
+          {[
+            ["quick", "Quick Create", "Select media, pick a style, generate an edit."],
+            ["guided", "Guided Create", "Import, choose template, review AI plan, export."],
+            ["advanced", "Advanced Editor", "Full timeline, JSON, inspector, logs, and render controls."]
+          ].map(([key, title, body]) => (
+            <button key={key} className={draft.defaultWorkflow === key ? "active" : ""} onClick={() => setDraft((current) => ({ ...current, defaultWorkflow: key as AppSettings["defaultWorkflow"] }))}>
+              <strong>{title}</strong>
+              <span>{body}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="wide-panel">
+        <h2>2. Default platform</h2>
+        <div className="choice-grid compact">
+          {[
+            ["youtube_shorts", "YouTube Shorts", "Vertical short-form"],
+            ["tiktok", "TikTok", "Fast caption-heavy"],
+            ["instagram_reels", "Reels", "Vertical social"],
+            ["standard", "Standard video", "Landscape 16:9"]
+          ].map(([key, title, body]) => (
+            <button key={key} className={draft.defaultPlatform === key ? "active" : ""} onClick={() => setDraft((current) => ({ ...current, defaultPlatform: key }))}>
+              <strong>{title}</strong>
+              <span>{body}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="wide-panel">
+        <h2>3. Editing style</h2>
+        <div className="choice-grid compact">
+          {["clean", "gaming", "cinematic", "podcast", "educational", "hype"].map((style) => (
+            <button key={style} className={draft.defaultStyle === style ? "active" : ""} onClick={() => setDraft((current) => ({ ...current, defaultStyle: style }))}>
+              <strong>{friendlyPresetName(style)}</strong>
+              <span>{aiStyleDescription(style)}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="wide-panel">
+        <h2>4. Default export folder</h2>
+        <div className="folder-choice-row">
+          <input readOnly value={draft.defaultExportFolder || ""} placeholder="Use the app exports folder" />
+          <button onClick={onPickExportFolder}><FolderOpen size={14} /> Choose Folder</button>
+        </div>
+      </section>
+
+      <section className="wide-panel">
+        <h2>5. System check</h2>
+        <div className="toolbar">
+          <button onClick={onRunSystemCheck}><RefreshCw size={14} /> Run System Check</button>
+          <button onClick={onOpenShortcuts}><Keyboard size={14} /> Keyboard Shortcuts</button>
+        </div>
+        <div className="system-check-grid">
+          {checks.map((check) => (
+            <span key={check.label} className={check.value ? "ok" : "warn"}>
+              {check.value ? "OK" : "!"}
+              <strong>{check.label}</strong>
+              <small>{check.detail}</small>
+            </span>
+          ))}
+        </div>
+      </section>
+
+      <section className="wide-panel onboarding-finish">
+        <label className="check-control"><input type="checkbox" checked={draft.beginnerTips} onChange={(event) => setDraft((current) => ({ ...current, beginnerTips: event.target.checked }))} /> Show beginner tips while I learn</label>
+        <button className="primary-create" onClick={onComplete}><CheckCircle2 size={15} /> Finish Setup</button>
+      </section>
+    </div>
+  );
+}
+
+function KeyboardShortcutsPanel() {
+  const shortcuts = [
+    ["Ctrl+S", "Save project"],
+    ["Ctrl+O", "Open project"],
+    ["Ctrl+Enter", "Generate preview render"],
+    ["Ctrl+Z", "Undo inside active editor/timeline"],
+    ["Ctrl+Y", "Redo inside active editor/timeline"],
+    ["Delete", "Ripple delete selected timeline scene"],
+    ["Arrow Left / Right", "Nudge selected scene by snap amount"],
+    ["Shift+Arrow", "Nudge selected scene faster"]
+  ];
+  return (
+    <div className="shortcut-panel">
+      <section className="wide-panel">
+        <h2><Keyboard size={16} /> Keyboard Shortcuts</h2>
+        <div className="shortcut-grid">
+          {shortcuts.map(([keys, label]) => (
+            <span key={keys}><kbd>{keys}</kbd><strong>{label}</strong></span>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function HelpCenter({ onOpenDocs, onOpenShortcuts }: { onOpenDocs: () => void; onOpenShortcuts: () => void }) {
+  const prompts = [
+    "Make this into a YouTube Short with clean captions.",
+    "Create a premium cinematic product showcase from this screen recording.",
+    "Find the strongest moments, remove dead air, and add smooth zooms.",
+    "Make this tutorial clear, slower paced, and easy to read."
+  ];
+  return (
+    <div className="help-center">
+      <section className="wide-panel">
+        <h2><CircleHelp size={16} /> What does this app do?</h2>
+        <p className="muted">It turns local media into an editable JSON timeline, lets AI propose edits for review, previews the result, then exports through FFmpeg. Advanced users can still open the raw JSON and logs.</p>
+        <div className="button-grid compact">
+          <button onClick={onOpenDocs}><CircleHelp size={16} /> Open bundled local docs</button>
+          <button onClick={onOpenShortcuts}><Keyboard size={16} /> Keyboard shortcuts</button>
+        </div>
+      </section>
+      <section className="wide-panel">
+        <h2><Sparkles size={16} /> Example prompts</h2>
+        <div className="example-prompt-grid">
+          {prompts.map((item) => <span key={item}>{item}</span>)}
+        </div>
+      </section>
+      <section className="wide-panel">
+        <h2><Wand2 size={16} /> Beginner tips</h2>
+        <div className="tip-card-grid">
+          <span><strong>Start simple</strong> Import one video, choose Quick Create, then preview.</span>
+          <span><strong>Review before applying</strong> AI plans show scenes and captions before changing the timeline.</span>
+          <span><strong>Export last</strong> Use preview first, then run preflight before final render.</span>
+          <span><strong>Advanced tools stay available</strong> JSON, logs, and diagnostics live under Advanced/Logs.</span>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function RenderActivityPopup({
+  processing,
+  activityFeed,
+  renderQueueItems,
+  logs,
+  systemMetrics,
+  gpuEnabled,
+  minimized,
+  onToggleMinimized,
+  onOpenDetails,
+  onPause,
+  onResume,
+  onCancel
+}: {
+  processing: ProcessingState;
+  activityFeed: ProcessingActivity[];
+  renderQueueItems: RenderQueueItem[];
+  logs: string[];
+  systemMetrics: SystemMetrics | null;
+  gpuEnabled: boolean;
+  minimized: boolean;
+  onToggleMinimized: () => void;
+  onOpenDetails: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onCancel: (runId: string) => void;
+}) {
+  const activeJob = activeRenderJob(renderQueueItems);
+  const active = processing.isActive || Boolean(activeJob);
+  if (!active && activityFeed.length === 0) return null;
+
+  const progress = safePercent(activeJob ? Number(activeJob.progressPercent || 0) : processing.progress);
+  const stage = activeJob?.currentScene ? `Rendering ${activeJob.currentScene}` : activeJob?.status === "queued" ? "Waiting in render queue" : processing.currentStage;
+  const eta = activeJob?.estimatedRemainingSeconds ?? processing.etaSeconds;
+  const latestIssues = latestRenderIssues(logs, activityFeed).slice(0, 3);
+
+  return (
+    <aside className={`render-activity-popup ${active ? "active" : ""} ${minimized ? "minimized" : ""}`}>
+      <div className="render-popup-head">
+        <div>
+          <strong>{stage}</strong>
+          <span>{activeJob?.label || processing.activeTask}</span>
+        </div>
+        <div className="render-popup-actions">
+          <button onClick={onOpenDetails}>Details</button>
+          <button onClick={onToggleMinimized}>{minimized ? "Expand" : "Minimize"}</button>
+        </div>
+      </div>
+      <div className="progressbar"><span style={{ width: `${progress}%` }} /></div>
+      {!minimized && (
+        <>
+          <div className="render-activity-grid compact">
+            <span>progress <strong>{Math.round(progress)}%</strong></span>
+            <span>ETA <strong>{formatEta(eta)}</strong></span>
+            <span>clip <strong>{activeJob?.currentScene || processing.currentScene || "auto"}</strong></span>
+            <span>CPU <strong>{formatPercent(systemMetrics?.cpuPercent)}</strong></span>
+            <span>GPU <strong>{systemMetrics?.gpuProcessActive ? formatPercent(systemMetrics.gpuPercent) : gpuEnabled ? "enabled" : "off"}</strong></span>
+            <span>warnings <strong>{latestIssues.length}</strong></span>
+          </div>
+          <div className="render-popup-controls">
+            <button onClick={onPause}><Pause size={13} /> Pause</button>
+            <button onClick={onResume}><Play size={13} /> Resume</button>
+            <button disabled={!activeJob} onClick={() => activeJob && onCancel(activeJob.runId)}>Cancel</button>
+          </div>
+          <div className="render-popup-feed">
+            {latestIssues.length === 0 ? (
+              <span className="muted">No current errors or warnings.</span>
+            ) : latestIssues.map((item) => (
+              <div className={`activity-row ${item.kind}`} key={item.id}>
+                <strong>{activityGlyph(item.kind)}</strong>
+                <span>{item.label}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </aside>
   );
 }
 
@@ -4197,8 +7268,8 @@ function ProcessingView({
             </div>
           ))}
         </div>
-        <details className="reasoning-panel">
-          <summary>AI reasoning</summary>
+        <details className="reasoning-panel ai-advanced-reasoning">
+          <summary>Advanced: AI reasoning</summary>
           {reasoningItems.length === 0 ? (
             <p className="muted">Reasoning summaries appear after generated plans or AI Director runs.</p>
           ) : (
@@ -4620,22 +7691,140 @@ function JsonEditor({
   );
 }
 
-function VisualTimeline({ project, onProjectChange }: { project: ProjectData; onProjectChange: (project: ProjectData) => void }) {
+function VisualTimeline({
+  project,
+  onProjectChange,
+  interactivePreview,
+  onAutosaveNow,
+  onDuplicateProject,
+  versionCount = 0,
+  recoveryCount = 0
+}: {
+  project: ProjectData;
+  onProjectChange: (project: ProjectData) => void;
+  interactivePreview?: InteractivePreviewState | null;
+  onAutosaveNow?: () => void;
+  onDuplicateProject?: () => void;
+  versionCount?: number;
+  recoveryCount?: number;
+}) {
   const [zoom, setZoom] = useState(1);
   const [snapSeconds, setSnapSeconds] = useState(0.25);
   const [rippleEdits, setRippleEdits] = useState(true);
   const [selectedScene, setSelectedScene] = useState(0);
+  const [markerLabel, setMarkerLabel] = useState("");
+  const [renameDraft, setRenameDraft] = useState(project.timeline?.[0]?.id || "");
+  const [groupName, setGroupName] = useState("");
+  const [undoStack, setUndoStack] = useState<Array<{ label: string; project: ProjectData }>>([]);
+  const [redoStack, setRedoStack] = useState<Array<{ label: string; project: ProjectData }>>([]);
+  const [lastTimelineAction, setLastTimelineAction] = useState("ready");
+  const [hoverClip, setHoverClip] = useState<{ x: number; y: number; sceneId: string; time: number; frame?: string } | null>(null);
+  const [trackState, setTrackState] = useState<TimelineTrackState>({
+    main: { locked: false, hidden: false },
+    audio: { locked: false, hidden: false, muted: false, solo: false },
+    captions: { locked: false, hidden: false },
+    broll: { locked: false, hidden: false },
+    graphics: { locked: false, hidden: false },
+    effects: { locked: false, hidden: false },
+    ai: { locked: false, hidden: false }
+  });
   const duration = Math.max(totalTimelineDuration(project), 1);
   const pxPerSecond = 70 * zoom;
   const width = duration * pxPerSecond;
   const layerCounts = collectLayerTypes(project);
   const timelineMeta = project.metadata?.timeline as Record<string, unknown> | undefined;
-  const timelineMarkers = Array.isArray(timelineMeta?.markers)
+  const savedTimelineMarkers = Array.isArray(timelineMeta?.markers)
     ? (timelineMeta.markers as Array<Record<string, unknown>>)
     : [];
+  const reviewMeta = project.metadata?.previewReview as Record<string, unknown> | undefined;
+  const previewMarkers = Array.isArray(reviewMeta?.markers)
+    ? (reviewMeta.markers as Array<Record<string, unknown>>).map((marker) => ({
+      ...marker,
+      label: marker.note || marker.label || marker.type || "review"
+    }))
+    : [];
+  const timelineMarkers = [...savedTimelineMarkers, ...previewMarkers];
+  const selected = project.timeline?.[selectedScene];
+
+  useEffect(() => {
+    setRenameDraft(project.timeline?.[selectedScene]?.id || "");
+  }, [project.timeline, selectedScene]);
+
+  function clampSelected(index: number) {
+    return Math.max(0, Math.min(index, Math.max((project.timeline?.length || 1) - 1, 0)));
+  }
+
+  function isMainLocked(sceneIndex = selectedScene) {
+    return Boolean(trackState.main.locked || project.timeline?.[sceneIndex]?.locked);
+  }
+
+  function pushUndo(label: string) {
+    setUndoStack((items) => [...items.slice(-24), { label, project: structuredClone(project) }]);
+    setRedoStack([]);
+    setLastTimelineAction(label);
+  }
+
+  function commitTimelineChange(next: ProjectData, label: string, nextSelection = selectedScene) {
+    pushUndo(label);
+    setSelectedScene(Math.max(0, Math.min(nextSelection, Math.max((next.timeline?.length || 1) - 1, 0))));
+    onProjectChange(next);
+  }
+
+  function undoTimeline() {
+    const item = undoStack.at(-1);
+    if (!item) return;
+    setUndoStack((items) => items.slice(0, -1));
+    setRedoStack((items) => [...items.slice(-24), { label: "redo snapshot", project: structuredClone(project) }]);
+    setLastTimelineAction(`undid ${item.label}`);
+    setSelectedScene(0);
+    onProjectChange(item.project);
+  }
+
+  function redoTimeline() {
+    const item = redoStack.at(-1);
+    if (!item) return;
+    setRedoStack((items) => items.slice(0, -1));
+    setUndoStack((items) => [...items.slice(-24), { label: "undo snapshot", project: structuredClone(project) }]);
+    setLastTimelineAction("redid timeline action");
+    setSelectedScene(0);
+    onProjectChange(item.project);
+  }
+
+  function toggleTrack(track: TimelineTrackId, key: "locked" | "hidden" | "muted" | "solo") {
+    setTrackState((state) => ({
+      ...state,
+      [track]: {
+        ...state[track],
+        [key]: !state[track][key]
+      }
+    }));
+  }
+
+  function trackForLayer(layer: LayerData): TimelineTrackId {
+    if (layer.type === "audio" || layer.type === "music" || layer.type === "sfx") return "audio";
+    if (layer.type === "caption" || layer.type === "captions" || layer.type === "subtitle") return "captions";
+    if (layer.type === "text" || layer.type === "lower_third" || layer.type === "shape" || layer.type === "graphic") return "graphics";
+    if (layer.type === "effect" || layer.type === "adjustment" || layer.type === "blur" || layer.type === "filter" || layer.type === "lut") return "effects";
+    if (layer.type === "image" || layer.type === "overlay" || layer.type === "broll") return "broll";
+    return "main";
+  }
+
+  function uniqueSceneId(base: string, scenes: SceneData[]) {
+    const used = new Set(scenes.map((scene) => scene.id));
+    let candidate = base;
+    let index = 2;
+    while (used.has(candidate)) {
+      candidate = `${base}_${index}`;
+      index += 1;
+    }
+    return candidate;
+  }
 
   const beginResize = (sceneIndex: number, event: React.PointerEvent) => {
+    if (isMainLocked(sceneIndex)) return;
     event.preventDefault();
+    event.stopPropagation();
+    pushUndo("resize scene");
     const startX = event.clientX;
     const original = project.timeline?.[sceneIndex]?.duration || 1;
     const move = (moveEvent: PointerEvent) => {
@@ -4650,57 +7839,166 @@ function VisualTimeline({ project, onProjectChange }: { project: ProjectData; on
     window.addEventListener("pointerup", stop);
   };
 
+  const beginMove = (sceneIndex: number, event: React.PointerEvent) => {
+    if (isMainLocked(sceneIndex)) return;
+    if ((event.target as HTMLElement).closest("button, input")) return;
+    event.preventDefault();
+    pushUndo("drag scene");
+    const startX = event.clientX;
+    const original = project.timeline?.[sceneIndex]?.start || 0;
+    const move = (moveEvent: PointerEvent) => {
+      const delta = (moveEvent.clientX - startX) / pxPerSecond;
+      onProjectChange(updateSceneTimingAdvanced(project, sceneIndex, { start: Math.max(0, Number((original + delta).toFixed(3))) }, { ripple: false, snapSeconds }));
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+
   const dropAsset = (sceneIndex: number, event: React.DragEvent) => {
     event.preventDefault();
+    if (isMainLocked(sceneIndex)) return;
     const assetKey = event.dataTransfer.getData("text/plain");
-    if (assetKey) onProjectChange(addAssetLayerToScene(project, sceneIndex, assetKey));
+    if (assetKey) commitTimelineChange(addAssetLayerToScene(project, sceneIndex, assetKey), "drop asset", sceneIndex);
   };
 
   const nudgeSelected = (delta: number) => {
     const scene = project.timeline?.[selectedScene];
-    if (!scene) return;
+    if (!scene || isMainLocked()) return;
+    pushUndo("nudge scene");
     onProjectChange(updateSceneTimingAdvanced(project, selectedScene, { start: Math.max(0, Number(scene.start || 0) + delta) }, { ripple: false, snapSeconds }));
   };
 
-  return (
-    <div
-      className="timeline-pane"
-      tabIndex={0}
-      onKeyDown={(event) => {
-        if (event.key === "ArrowLeft") {
-          event.preventDefault();
-          nudgeSelected(event.shiftKey ? -snapSeconds * 4 : -snapSeconds);
+  function splitSelectedScene() {
+    if (!selected || isMainLocked() || selected.duration < 0.5) return;
+    const scenes = structuredClone(project.timeline || []);
+    const scene = scenes[selectedScene];
+    const firstDuration = Math.max(0.25, Number((scene.duration / 2).toFixed(3)));
+    const secondDuration = Math.max(0.25, Number((scene.duration - firstDuration).toFixed(3)));
+    const first = { ...scene, duration: firstDuration };
+    const second = {
+      ...structuredClone(scene),
+      id: uniqueSceneId(`${scene.id}_split`, scenes),
+      start: Number((scene.start + firstDuration).toFixed(3)),
+      duration: secondDuration
+    };
+    scenes.splice(selectedScene, 1, first, second);
+    commitTimelineChange({ ...project, timeline: scenes }, "split scene", selectedScene + 1);
+  }
+
+  function trimSelected(delta: number) {
+    if (!selected || isMainLocked()) return;
+    const nextDuration = Math.max(0.25, Number((Number(selected.duration || 0) + delta).toFixed(3)));
+    commitTimelineChange(updateSceneTimingAdvanced(project, selectedScene, { duration: nextDuration }, { ripple: rippleEdits, snapSeconds }), "trim scene");
+  }
+
+  function rippleDeleteSelected() {
+    if (!selected || isMainLocked()) return;
+    const scenes = structuredClone(project.timeline || []);
+    const removed = scenes[selectedScene];
+    scenes.splice(selectedScene, 1);
+    if (rippleEdits) {
+      for (const scene of scenes) {
+        if (Number(scene.start || 0) > Number(removed.start || 0)) {
+          scene.start = Math.max(0, Number((Number(scene.start || 0) - Number(removed.duration || 0)).toFixed(3)));
         }
-        if (event.key === "ArrowRight") {
-          event.preventDefault();
-          nudgeSelected(event.shiftKey ? snapSeconds * 4 : snapSeconds);
-        }
-      }}
-    >
-      <div className="timeline-tools">
-        <button onClick={() => setZoom((value) => Math.max(0.5, Number((value - 0.25).toFixed(2))))}><ZoomOut size={15} /> Zoom</button>
-        <button onClick={() => setZoom((value) => Math.min(4, Number((value + 0.25).toFixed(2))))}><ZoomIn size={15} /> Zoom</button>
-        <label><input type="checkbox" checked={rippleEdits} onChange={(event) => setRippleEdits(event.target.checked)} /> ripple</label>
-        <label>
-          snap
-          <select value={snapSeconds} onChange={(event) => setSnapSeconds(Number(event.target.value))}>
-            <option value={0.05}>0.05s</option>
-            <option value={0.1}>0.10s</option>
-            <option value={0.25}>0.25s</option>
-            <option value={0.5}>0.50s</option>
-          </select>
-        </label>
-        <span>{duration.toFixed(1)}s</span>
-        <span>selected {project.timeline?.[selectedScene]?.id || "-"}</span>
-        <span>{Object.entries(layerCounts).map(([type, count]) => `${type}:${count}`).join(" | ")}</span>
-      </div>
-      <div className="timeline-scroll">
-        <div className="time-ruler" style={{ width }}>
-          {Array.from({ length: Math.ceil(duration) + 1 }).map((_, index) => (
-            <span key={index} style={{ left: index * pxPerSecond }}>{index}s</span>
-          ))}
-        </div>
-        <div className="scene-track" style={{ width }}>
+      }
+    }
+    commitTimelineChange({ ...project, timeline: scenes }, "ripple delete", clampSelected(selectedScene - 1));
+  }
+
+  function addMarker() {
+    if (!selected) return;
+    const next = structuredClone(project);
+    const metadata = { ...(next.metadata || {}) };
+    const timeline = { ...((metadata.timeline as Record<string, unknown> | undefined) || {}) };
+    const markers = Array.isArray(timeline.markers) ? [...(timeline.markers as Array<Record<string, unknown>>)] : [];
+    markers.push({
+      time: Number(selected.start || 0),
+      sceneId: selected.id,
+      type: "marker",
+      label: markerLabel.trim() || selected.id
+    });
+    timeline.markers = markers;
+    metadata.timeline = timeline;
+    next.metadata = metadata;
+    commitTimelineChange(next, "add marker");
+    setMarkerLabel("");
+  }
+
+  function snapSelectedToMarker() {
+    if (!selected || isMainLocked() || timelineMarkers.length === 0) return;
+    const nearest = timelineMarkers.reduce((best, marker) => {
+      const bestTime = Number(best.time || 0);
+      const markerTime = Number(marker.time || 0);
+      return Math.abs(markerTime - selected.start) < Math.abs(bestTime - selected.start) ? marker : best;
+    }, timelineMarkers[0]);
+    commitTimelineChange(updateSceneTimingAdvanced(project, selectedScene, { start: Number(nearest.time || 0) }, { ripple: false, snapSeconds }), "snap to marker");
+  }
+
+  function renameSelectedScene() {
+    if (!selected || isMainLocked()) return;
+    const nextName = renameDraft.trim();
+    if (!nextName || nextName === selected.id) return;
+    const next = structuredClone(project);
+    if (!next.timeline?.[selectedScene]) return;
+    const previousId = next.timeline[selectedScene].id;
+    next.timeline[selectedScene].id = uniqueSceneId(nextName, next.timeline.filter((_, index) => index !== selectedScene));
+    const metadata = next.metadata || {};
+    const timeline = metadata.timeline as Record<string, unknown> | undefined;
+    if (timeline && Array.isArray(timeline.markers)) {
+      timeline.markers = (timeline.markers as Array<Record<string, unknown>>).map((marker) =>
+        marker.sceneId === previousId ? { ...marker, sceneId: next.timeline?.[selectedScene]?.id } : marker
+      );
+    }
+    commitTimelineChange(next, "rename scene");
+  }
+
+  function groupSelectedScene() {
+    if (!selected || isMainLocked()) return;
+    const next = structuredClone(project);
+    if (!next.timeline?.[selectedScene]) return;
+    next.timeline[selectedScene].group = groupName.trim() || `group_${selectedScene + 1}`;
+    commitTimelineChange(next, "group scene");
+  }
+
+  function toggleSelectedSceneLock() {
+    if (!selected) return;
+    const next = structuredClone(project);
+    if (!next.timeline?.[selectedScene]) return;
+    next.timeline[selectedScene].locked = !next.timeline[selectedScene].locked;
+    commitTimelineChange(next, next.timeline[selectedScene].locked ? "lock scene" : "unlock scene");
+  }
+
+  function layerPillsForTrack(track: TimelineTrackId) {
+    return (project.timeline || []).flatMap((scene) =>
+      scene.layers
+        .map((layer, layerIndex) => ({ scene, layer, layerIndex }))
+        .filter(({ layer }) => trackForLayer(layer) === track)
+    );
+  }
+
+  function previewFrameForScene(sceneId: string) {
+    return interactivePreview?.sceneThumbnails?.find((thumb) => thumb.sceneId === sceneId)?.frame;
+  }
+
+  const laneRows: Array<{ id: TimelineTrackId; title: string; hint: string }> = [
+    { id: "main", title: "Main video", hint: `${project.timeline?.length || 0} scenes` },
+    { id: "audio", title: "Audio", hint: `${project.audio?.length || 0} tracks` },
+    { id: "captions", title: "Captions", hint: `${layerCounts.caption || layerCounts.captions || 0} layers` },
+    { id: "broll", title: "B-roll", hint: `${layerCounts.image || 0} images` },
+    { id: "graphics", title: "Text/graphics", hint: `${layerCounts.text || 0} text` },
+    { id: "effects", title: "Effects", hint: "transitions + filters" },
+    { id: "ai", title: "AI suggestions", hint: `${previewMarkers.length} markers` }
+  ];
+
+  function renderLaneBody(track: TimelineTrackId) {
+    if (track === "main") {
+      return (
+        <>
           {timelineMarkers.map((marker, index) => (
             <span
               className="timeline-marker"
@@ -4711,45 +8009,267 @@ function VisualTimeline({ project, onProjectChange }: { project: ProjectData; on
           ))}
           {(project.timeline || []).map((scene, index) => (
             <div
-              className={`scene-block ${selectedScene === index ? "selected" : ""}`}
+              className={`scene-block ${selectedScene === index ? "selected" : ""} ${scene.locked ? "locked" : ""}`}
               key={scene.id}
               onClick={() => setSelectedScene(index)}
+              onPointerDown={(event) => beginMove(index, event)}
+              onMouseMove={(event) => setHoverClip({
+                x: event.clientX + 14,
+                y: event.clientY + 14,
+                sceneId: scene.id,
+                time: Number(scene.start || 0),
+                frame: previewFrameForScene(scene.id)
+              })}
+              onMouseLeave={() => setHoverClip(null)}
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => dropAsset(index, event)}
-              style={{ left: scene.start * pxPerSecond, width: Math.max(scene.duration * pxPerSecond, 36) }}
+              style={{ left: scene.start * pxPerSecond, width: Math.max(scene.duration * pxPerSecond, 42) }}
             >
               <strong>{scene.id}</strong>
               <span>{scene.duration.toFixed(2)}s</span>
               {scene.group && <small>{scene.group}</small>}
+              {scene.locked && <small>locked</small>}
               {scene.transitionOut && <small>{String(scene.transitionOut.type || "transition")}</small>}
               <button className="resize-handle" title="Drag timing handle" onPointerDown={(event) => beginResize(index, event)} />
             </div>
           ))}
+        </>
+      );
+    }
+
+    if (track === "audio") {
+      return (
+        <>
+          {(project.audio || []).map((audio, index) => (
+            <div
+              key={index}
+              className={`audio-pill ${trackState.audio.muted ? "muted-track" : ""} ${trackState.audio.solo ? "solo-track" : ""}`}
+              style={{
+                left: Number(audio.start || 0) * pxPerSecond,
+                width: Math.max(Number(audio.duration || duration) * pxPerSecond, 130)
+              }}
+            >
+              audio {String(audio.asset || "")}
+            </div>
+          ))}
+          {layerPillsForTrack("audio").map(({ scene, layer, layerIndex }) => (
+            <div
+              key={`${scene.id}-audio-${layerIndex}`}
+              className="audio-pill"
+              style={{
+                left: (scene.start + Number(layer.start || 0)) * pxPerSecond,
+                width: Math.max(Number(layer.duration || scene.duration) * pxPerSecond, 60)
+              }}
+            >
+              {layer.type} {layer.asset || ""}
+            </div>
+          ))}
+        </>
+      );
+    }
+
+    if (track === "effects") {
+      return (
+        <>
+          {(project.timeline || []).map((scene) => scene.transitionOut && (
+            <div
+              key={`${scene.id}-transition`}
+              className="layer-pill effect"
+              style={{
+                left: Math.max(0, (scene.start + scene.duration - Number(scene.transitionOut?.duration || 0.35)) * pxPerSecond),
+                width: Math.max(Number(scene.transitionOut?.duration || 0.35) * pxPerSecond, 46)
+              }}
+            >
+              transition {String(scene.transitionOut.type || "cut")}
+            </div>
+          ))}
+          {layerPillsForTrack("effects").map(({ scene, layer, layerIndex }) => (
+            <div
+              key={`${scene.id}-effects-${layerIndex}`}
+              className="layer-pill effect"
+              style={{
+                left: (scene.start + Number(layer.start || 0)) * pxPerSecond,
+                width: Math.max(Number(layer.duration || scene.duration) * pxPerSecond, 46)
+              }}
+            >
+              {layer.type}
+            </div>
+          ))}
+        </>
+      );
+    }
+
+    if (track === "ai") {
+      return (
+        <>
+          {(project.timeline || []).map((scene) => (
+            <div
+              key={`${scene.id}-ai`}
+              className={`layer-pill ai-pill ${scene.reviewStatus || ""}`}
+              style={{
+                left: Number(scene.start || 0) * pxPerSecond,
+                width: Math.max(Number(scene.duration || 0) * pxPerSecond, 54)
+              }}
+            >
+              {scene.reviewStatus || "review"} {scene.id}
+            </div>
+          ))}
+          {previewMarkers.map((marker, index) => (
+            <div
+              key={`ai-marker-${index}`}
+              className="layer-pill ai-pill marker-pill"
+              style={{
+                left: Number(marker.time || 0) * pxPerSecond,
+                width: 120
+              }}
+            >
+              {String(marker.label || marker.type || "note")}
+            </div>
+          ))}
+        </>
+      );
+    }
+
+    return (
+      <>
+        {layerPillsForTrack(track).map(({ scene, layer, layerIndex }) => (
+          <div
+            key={`${scene.id}-${track}-${layerIndex}`}
+            className={`layer-pill ${layer.type}`}
+            style={{
+              left: (scene.start + Number(layer.start || 0)) * pxPerSecond,
+              width: Math.max(Number(layer.duration || scene.duration) * pxPerSecond, 48)
+            }}
+          >
+            {layer.type} {layer.asset || layer.text || ""}
+          </div>
+        ))}
+      </>
+    );
+  }
+
+  return (
+    <div
+      className="timeline-pane"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+          event.preventDefault();
+          undoTimeline();
+          return;
+        }
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
+          event.preventDefault();
+          redoTimeline();
+          return;
+        }
+        if (event.key === "Delete") {
+          event.preventDefault();
+          rippleDeleteSelected();
+          return;
+        }
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          nudgeSelected(event.shiftKey ? -snapSeconds * 4 : -snapSeconds);
+        }
+        if (event.key === "ArrowRight") {
+          event.preventDefault();
+          nudgeSelected(event.shiftKey ? snapSeconds * 4 : snapSeconds);
+        }
+      }}
+    >
+      <div className="timeline-safety-bar">
+        <div>
+          <strong>Timeline safety</strong>
+          <span>{lastTimelineAction}</span>
+          <span>{versionCount} versions</span>
+          <span>{recoveryCount} restore points</span>
         </div>
-        <div className="layer-tracks" style={{ width }}>
-          {(project.timeline || []).map((scene) =>
-            scene.layers.map((layer, layerIndex) => (
-              <div
-                key={`${scene.id}-${layerIndex}`}
-                className={`layer-pill ${layer.type}`}
-                style={{
-                  left: (scene.start + Number(layer.start || 0)) * pxPerSecond,
-                  width: Math.max(Number(layer.duration || scene.duration) * pxPerSecond, 40),
-                  top: layerIndex * 34
-                }}
-              >
-                {layer.type} {layer.asset || layer.text || ""}
+        <div>
+          <button onClick={undoTimeline} disabled={undoStack.length === 0}><Undo2 size={14} /> Undo</button>
+          <button onClick={redoTimeline} disabled={redoStack.length === 0}><Redo2 size={14} /> Redo</button>
+          <button onClick={onAutosaveNow} disabled={!onAutosaveNow}><Save size={14} /> Auto-save</button>
+          <button onClick={onDuplicateProject} disabled={!onDuplicateProject}>Duplicate project</button>
+          <button onClick={toggleSelectedSceneLock}>{selected?.locked ? "Unlock scene" : "Lock scene"}</button>
+        </div>
+      </div>
+      <div className="timeline-tools">
+        <div className="timeline-tool-group">
+          <button onClick={splitSelectedScene} disabled={!selected || isMainLocked()}><Scissors size={15} /> Split</button>
+          <button onClick={() => trimSelected(-snapSeconds)} disabled={!selected || isMainLocked()}>Trim -</button>
+          <button onClick={() => trimSelected(snapSeconds)} disabled={!selected || isMainLocked()}>Trim +</button>
+          <button onClick={rippleDeleteSelected} disabled={!selected || isMainLocked()}>Ripple delete</button>
+        </div>
+        <div className="timeline-tool-group">
+          <button onClick={() => setZoom((value) => Math.max(0.5, Number((value - 0.25).toFixed(2))))}><ZoomOut size={15} /> Zoom</button>
+          <button onClick={() => setZoom((value) => Math.min(4, Number((value + 0.25).toFixed(2))))}><ZoomIn size={15} /> Zoom</button>
+          <label><input type="checkbox" checked={rippleEdits} onChange={(event) => setRippleEdits(event.target.checked)} /> ripple</label>
+          <label>
+            snap
+            <select value={snapSeconds} onChange={(event) => setSnapSeconds(Number(event.target.value))}>
+              <option value={0.05}>0.05s</option>
+              <option value={0.1}>0.10s</option>
+              <option value={0.25}>0.25s</option>
+              <option value={0.5}>0.50s</option>
+            </select>
+          </label>
+          <button onClick={snapSelectedToMarker} disabled={!selected || timelineMarkers.length === 0}>Snap marker</button>
+        </div>
+        <div className="timeline-tool-group timeline-tool-fields">
+          <input value={renameDraft} onChange={(event) => setRenameDraft(event.target.value)} onBlur={renameSelectedScene} onKeyDown={(event) => event.key === "Enter" && renameSelectedScene()} aria-label="Rename selected scene" />
+          <input value={groupName} onChange={(event) => setGroupName(event.target.value)} placeholder="group name" aria-label="Group name" />
+          <button onClick={groupSelectedScene} disabled={!selected || isMainLocked()}>Group clips</button>
+          <input value={markerLabel} onChange={(event) => setMarkerLabel(event.target.value)} placeholder="marker note" aria-label="Marker label" />
+          <button onClick={addMarker} disabled={!selected}><Plus size={14} /> Marker</button>
+        </div>
+        <span>{duration.toFixed(1)}s</span>
+        <span>selected {selected?.id || "-"}</span>
+        <span>{Object.entries(layerCounts).map(([type, count]) => `${type}:${count}`).join(" | ")}</span>
+      </div>
+      <div className="timeline-scroll">
+        <div className="time-ruler" style={{ width: width + 154 }}>
+          {Array.from({ length: Math.ceil(duration) + 1 }).map((_, index) => (
+            <span key={index} style={{ left: 154 + index * pxPerSecond }}>{index}s</span>
+          ))}
+        </div>
+        <div className="timeline-lanes" style={{ width: width + 154 }}>
+          {laneRows.map((lane) => (
+            <div className={`timeline-lane ${lane.id} ${trackState[lane.id].hidden ? "hidden" : ""}`} key={lane.id}>
+              <div className="timeline-lane-header">
+                <strong>{lane.title}</strong>
+                <span>{lane.hint}</span>
+                <div className="track-controls">
+                  <button onClick={() => toggleTrack(lane.id, "locked")} className={trackState[lane.id].locked ? "active" : ""}>
+                    {trackState[lane.id].locked ? "Locked" : "Lock"}
+                  </button>
+                  <button onClick={() => toggleTrack(lane.id, "hidden")} className={trackState[lane.id].hidden ? "active" : ""}>
+                    {trackState[lane.id].hidden ? "Hidden" : "Hide"}
+                  </button>
+                  {lane.id === "audio" && (
+                    <>
+                      <button onClick={() => toggleTrack("audio", "muted")} className={trackState.audio.muted ? "active" : ""}>
+                        {trackState.audio.muted ? "Muted" : "Mute"}
+                      </button>
+                      <button onClick={() => toggleTrack("audio", "solo")} className={trackState.audio.solo ? "active" : ""}>
+                        {trackState.audio.solo ? "Soloed" : "Solo"}
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-            ))
-          )}
-        </div>
-        <div className="audio-track" style={{ width }}>
-          {(project.audio || []).map((track, index) => (
-            <div key={index} className="audio-pill" style={{ left: Number(track.start || 0) * pxPerSecond }}>
-              audio {String(track.asset || "")}
+              <div className="timeline-lane-body" style={{ width }}>
+                {trackState[lane.id].hidden ? <span className="track-hidden-label">track hidden</span> : renderLaneBody(lane.id)}
+              </div>
             </div>
           ))}
         </div>
+        {hoverClip && (
+          <div className="timeline-hover-preview" style={{ left: hoverClip.x, top: hoverClip.y }}>
+            {hoverClip.frame ? <img src={window.ave.toFileUrl(hoverClip.frame)} alt="" /> : <div className="timeline-hover-placeholder"><MonitorPlay size={24} /></div>}
+            <strong>{hoverClip.sceneId}</strong>
+            <span>{hoverClip.time.toFixed(2)}s</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -4799,12 +8319,24 @@ function PreviewWindow({
   onProjectPreviewChange: (project: ProjectData) => Promise<void>;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const previewFrameRef = useRef<HTMLDivElement | null>(null);
   const [time, setTime] = useState(0);
   const [videoDuration, setVideoDuration] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(0.85);
   const [loop, setLoop] = useState(false);
+  const [performanceNotice, setPerformanceNotice] = useState("");
+  const [previewHover, setPreviewHover] = useState<{ x: number; y: number; sceneId: string; time: number; frame?: string } | null>(null);
+  const [overlays, setOverlays] = useState({
+    safeZones: true,
+    captions: true,
+    aspectGuides: true,
+    sceneMarkers: true,
+    aiSuggestions: true,
+    crop: true
+  });
   const [markerType, setMarkerType] = useState<PreviewMarkerType>("needs_cut");
   const [markerNote, setMarkerNote] = useState("");
   const [previewNote, setPreviewNote] = useState("");
@@ -4852,6 +8384,20 @@ function PreviewWindow({
     setRangeEndDraft(Number(currentScene.start || 0) + Number(currentScene.duration || 0));
   }, [currentScene?.id]);
 
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      const video = videoRef.current as (HTMLVideoElement & { getVideoPlaybackQuality?: () => { totalVideoFrames: number; droppedVideoFrames: number } }) | null;
+      const quality = video?.getVideoPlaybackQuality?.();
+      if (!quality || quality.totalVideoFrames < 90) return;
+      const dropRate = quality.droppedVideoFrames / Math.max(quality.totalVideoFrames, 1);
+      if (dropRate > 0.08 && previewQualityMode !== "draft") {
+        setPreviewQualityMode("draft");
+        setPerformanceNotice("Preview quality lowered to Performance because playback was dropping frames.");
+      }
+    }, 2500);
+    return () => window.clearInterval(interval);
+  }, [previewQualityMode, setPreviewQualityMode]);
+
   function syncVideo(nextTime: number) {
     const clamped = Math.max(0, Math.min(nextTime, timelineDuration || nextTime));
     if (videoRef.current) videoRef.current.currentTime = clamped;
@@ -4861,6 +8407,47 @@ function PreviewWindow({
   function setRate(nextRate: number) {
     setPlaybackRate(nextRate);
     if (videoRef.current) videoRef.current.playbackRate = nextRate;
+  }
+
+  function playPreview() {
+    void videoRef.current?.play();
+  }
+
+  function pausePreview() {
+    videoRef.current?.pause();
+  }
+
+  function stopPreview() {
+    videoRef.current?.pause();
+    syncVideo(0);
+  }
+
+  function restartPreview() {
+    syncVideo(0);
+    void videoRef.current?.play();
+  }
+
+  function toggleFullscreen() {
+    const element = previewFrameRef.current;
+    if (!element) return;
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    } else {
+      void element.requestFullscreen();
+    }
+  }
+
+  function scrubTimeline(nextTime: number) {
+    setPreviewTimeSeconds(nextTime);
+    syncVideo(nextTime);
+  }
+
+  function sceneThumbnail(sceneId: string) {
+    return thumbnails.find((thumb) => thumb.sceneId === sceneId)?.frame;
+  }
+
+  function toggleOverlay(key: keyof typeof overlays) {
+    setOverlays((value) => ({ ...value, [key]: !value[key] }));
   }
 
   function jumpToScene(sceneId: string) {
@@ -4930,7 +8517,7 @@ function PreviewWindow({
 
   return (
     <div className="preview-pane">
-      <div className="preview-frame">
+      <div className="preview-frame" ref={previewFrameRef}>
         {src ? (
           <>
             <video
@@ -4938,7 +8525,9 @@ function PreviewWindow({
               src={src}
               loop={loop}
               muted={muted}
-              onPlay={(event) => { event.currentTarget.playbackRate = playbackRate; event.currentTarget.volume = volume; }}
+              onPlay={(event) => { setIsPlaying(true); event.currentTarget.playbackRate = playbackRate; event.currentTarget.volume = volume; }}
+              onPause={() => setIsPlaying(false)}
+              onEnded={() => setIsPlaying(false)}
               onTimeUpdate={(event) => setTime(event.currentTarget.currentTime)}
               onLoadedMetadata={(event) => {
                 setVideoDuration(event.currentTarget.duration || 0);
@@ -4946,28 +8535,53 @@ function PreviewWindow({
                 event.currentTarget.volume = volume;
               }}
             />
-            <div className="safe-zone title-zone" />
-            <div className="safe-zone action-zone" />
           </>
         ) : framePath ? (
           <>
             <img className="preview-still" src={window.ave.toFileUrl(framePath)} alt="" />
-            <div className="safe-zone title-zone" />
-            <div className="safe-zone action-zone" />
           </>
         ) : (
           <div className="empty-preview">Render a preview to scrub frames here.</div>
         )}
+        <div className="preview-overlay-layer">
+          {overlays.safeZones && (
+            <>
+              <div className="safe-zone title-zone" />
+              <div className="safe-zone action-zone" />
+            </>
+          )}
+          {overlays.captions && <div className="caption-boundary"><span>caption safe area</span></div>}
+          {overlays.aspectGuides && (
+            <div className="aspect-guides">
+              <i />
+              <i />
+              <b />
+              <b />
+            </div>
+          )}
+          {overlays.crop && <div className="crop-preview-guide"><span>crop preview</span></div>}
+          {overlays.sceneMarkers && (project?.timeline || []).map((scene) => {
+            const left = duration ? (Number(scene.start || 0) / duration) * 100 : 0;
+            return <span className="overlay-scene-marker" key={scene.id} style={{ left: `${left}%` }} title={scene.id} />;
+          })}
+          {overlays.aiSuggestions && markers.map((marker) => {
+            const left = timelineDuration ? (Number(marker.time || 0) / timelineDuration) * 100 : 0;
+            return <span className={`overlay-ai-marker ${marker.type}`} key={marker.id} style={{ left: `${left}%` }} title={`${marker.type}: ${marker.note || ""}`} />;
+          })}
+        </div>
+        <div className="preview-status-badges">
+          <span>{isPlaying ? "playing" : "paused"}</span>
+          <span>{previewQualityMode === "draft" ? "Performance" : previewQualityMode === "high" ? "Full quality" : "Balanced"}</span>
+          <span>{previewScope === "scene" ? "scene preview" : "full timeline"}</span>
+        </div>
       </div>
       <div className="preview-controls interactive-controls">
         <div className="preview-toolbar">
           <button onClick={onInteractivePreview}><RefreshCw size={16} /> Build Preview Cache</button>
           <select value={previewQualityMode} onChange={(event) => setPreviewQualityMode(event.target.value)} title="Preview quality mode">
-            <option value="draft">draft preview</option>
-            <option value="proxy">proxy preview</option>
-            <option value="balanced">balanced preview</option>
-            <option value="high">high-quality preview</option>
-            <option value="final_sim">final render simulation</option>
+            <option value="draft">Performance</option>
+            <option value="balanced">Balanced</option>
+            <option value="high">Full quality</option>
           </select>
           <select value={previewScope} onChange={(event) => setPreviewScope(event.target.value as "full" | "scene")} title="Preview scope">
             <option value="full">full timeline</option>
@@ -4978,22 +8592,23 @@ function PreviewWindow({
             {(project?.timeline || []).map((scene) => <option key={scene.id} value={scene.id}>{scene.id}</option>)}
           </select>
           <span>{timestamp(time)} / {timestamp(timelineDuration)}</span>
+          {performanceNotice && <span className="preview-performance-note">{performanceNotice}</span>}
         </div>
         <div className="preview-toolbar">
-          <button onClick={() => videoRef.current?.play()}><Play size={16} /> Play</button>
-          <button onClick={() => videoRef.current?.pause()}><Pause size={16} /> Pause</button>
-          <button onClick={() => { videoRef.current?.pause(); syncVideo(0); }}>Stop</button>
-          <button onClick={() => { syncVideo(0); videoRef.current?.play(); }}><RefreshCw size={16} /> Restart</button>
+          <button onClick={playPreview}><Play size={16} /> Play</button>
+          <button onClick={pausePreview}><Pause size={16} /> Pause</button>
+          <button onClick={stopPreview}>Stop</button>
+          <button onClick={restartPreview}><RefreshCw size={16} /> Restart</button>
           <button onClick={() => syncVideo(time - 1 / Math.max(fps, 1))}>Frame -</button>
           <button onClick={() => syncVideo(time + 1 / Math.max(fps, 1))}>Frame +</button>
           <button onClick={onRealtimePreview}><MonitorPlay size={16} /> Cache Frame</button>
+          <button onClick={toggleFullscreen}><Maximize2 size={16} /> Fullscreen</button>
         </div>
         <div className="preview-toolbar">
           <select value={playbackRate} onChange={(event) => setRate(Number(event.target.value))} title="Playback speed">
             <option value={0.25}>0.25x</option>
             <option value={0.5}>0.5x</option>
             <option value={1}>1x</option>
-            <option value={1.25}>1.25x</option>
             <option value={1.5}>1.5x</option>
             <option value={2}>2x</option>
           </select>
@@ -5019,13 +8634,22 @@ function PreviewWindow({
           </label>
           <span>final duration {timestamp(estimatedFinalDuration)}</span>
         </div>
+        <div className="preview-toolbar overlay-toolbar">
+          <span>Overlays</span>
+          <label><input type="checkbox" checked={overlays.safeZones} onChange={() => toggleOverlay("safeZones")} /> Safe zones</label>
+          <label><input type="checkbox" checked={overlays.captions} onChange={() => toggleOverlay("captions")} /> Captions</label>
+          <label><input type="checkbox" checked={overlays.aspectGuides} onChange={() => toggleOverlay("aspectGuides")} /> Aspect guides</label>
+          <label><input type="checkbox" checked={overlays.sceneMarkers} onChange={() => toggleOverlay("sceneMarkers")} /> Scene markers</label>
+          <label><input type="checkbox" checked={overlays.aiSuggestions} onChange={() => toggleOverlay("aiSuggestions")} /> AI suggestions</label>
+          <label><input type="checkbox" checked={overlays.crop} onChange={() => toggleOverlay("crop")} /> Crop preview</label>
+        </div>
         <input
           type="range"
           min={0}
           max={Math.max(duration, 0)}
           step={0.05}
           value={Math.min(previewTimeSeconds, Math.max(duration, 0))}
-          onChange={(event) => setPreviewTimeSeconds(Number(event.target.value))}
+          onChange={(event) => scrubTimeline(Number(event.target.value))}
           title="Realtime preview scrubber"
         />
         <input
@@ -5047,6 +8671,14 @@ function PreviewWindow({
                 className="preview-scene-segment"
                 style={{ left: `${left}%`, width: `${Math.max(width, 2)}%` }}
                 onClick={() => jumpToScene(scene.id)}
+                onMouseMove={(event) => setPreviewHover({
+                  x: event.clientX + 14,
+                  y: event.clientY + 14,
+                  sceneId: scene.id,
+                  time: Number(scene.start || 0),
+                  frame: sceneThumbnail(scene.id)
+                })}
+                onMouseLeave={() => setPreviewHover(null)}
                 title={`${scene.id} ${Number(scene.duration || 0).toFixed(2)}s`}
               >
                 {scene.id}
@@ -5069,6 +8701,13 @@ function PreviewWindow({
                 <span>{thumb.sceneId}</span>
               </button>
             ))}
+          </div>
+        )}
+        {previewHover && (
+          <div className="timeline-hover-preview" style={{ left: previewHover.x, top: previewHover.y }}>
+            {previewHover.frame ? <img src={window.ave.toFileUrl(previewHover.frame)} alt="" /> : <div className="timeline-hover-placeholder"><MonitorPlay size={24} /></div>}
+            <strong>{previewHover.sceneId}</strong>
+            <span>{previewHover.time.toFixed(2)}s</span>
           </div>
         )}
         {interactivePreview && (
@@ -5240,13 +8879,19 @@ function PreviewWindow({
   );
 }
 
+type MediaBinCategory = "all" | "videos" | "images" | "audio" | "voiceovers" | "captions" | "generated" | "url" | "project";
+type MediaSortMode = "name" | "date" | "duration";
+type MediaContextMenu = { x: number; y: number; assetKey: string } | null;
+
 function AssetLibrary({
   project,
   assets,
   assetReport,
   onImport,
   onAnalyze,
-  onDropAsset
+  onDropAsset,
+  onProjectChange,
+  onReplaceAsset
 }: {
   project: ProjectData;
   assets: AssetCheck[];
@@ -5254,8 +8899,241 @@ function AssetLibrary({
   onImport: () => void;
   onAnalyze: () => void;
   onDropAsset: (asset: ImportedAsset) => void;
+  onProjectChange: (project: ProjectData) => void;
+  onReplaceAsset: (assetKey: string) => void;
 }) {
+  const [activeCategory, setActiveCategory] = useState<MediaBinCategory>("all");
+  const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState<AssetCheck["type"] | "all">("all");
+  const [sortMode, setSortMode] = useState<MediaSortMode>("name");
+  const [showUnusedOnly, setShowUnusedOnly] = useState(false);
+  const [contextMenu, setContextMenu] = useState<MediaContextMenu>(null);
+  const [previewAssetKey, setPreviewAssetKey] = useState<string>("");
+  const [detailsAssetKey, setDetailsAssetKey] = useState<string>("");
   const analyzedAssets = Array.isArray(assetReport?.assets) ? assetReport.assets as Array<Record<string, unknown>> : [];
+  const smartCollections = assetReport?.smartCollections && typeof assetReport.smartCollections === "object"
+    ? assetReport.smartCollections as Record<string, Array<Record<string, unknown>>>
+    : {};
+  const smartRecommendations = Array.isArray(assetReport?.recommendations) ? assetReport.recommendations as Array<Record<string, unknown>> : [];
+  const [activeSmartCollection, setActiveSmartCollection] = useState<string>("all");
+  const categories: Array<{ key: MediaBinCategory; label: string; icon: ReactNode }> = [
+    { key: "all", label: "All media", icon: <FolderOpen size={15} /> },
+    { key: "videos", label: "Videos", icon: <Video size={15} /> },
+    { key: "images", label: "Images", icon: <Image size={15} /> },
+    { key: "audio", label: "Audio", icon: <Music size={15} /> },
+    { key: "voiceovers", label: "Voiceovers", icon: <Mic size={15} /> },
+    { key: "captions", label: "Captions", icon: <Captions size={15} /> },
+    { key: "generated", label: "Generated assets", icon: <Sparkles size={15} /> },
+    { key: "url", label: "Downloaded URL media", icon: <Download size={15} /> },
+    { key: "project", label: "Project files", icon: <FileJson size={15} /> }
+  ];
+
+  useEffect(() => {
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", close);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", close);
+    };
+  }, []);
+
+  function fileName(filePath: string) {
+    return filePath.split(/[\\/]/).pop() || filePath;
+  }
+
+  function extension(filePath: string) {
+    const name = fileName(filePath).toLowerCase();
+    const match = name.match(/\.([a-z0-9]+)$/);
+    return match ? match[1] : "";
+  }
+
+  function normalizedPath(filePath: string) {
+    return filePath.replace(/\\/g, "/").toLowerCase();
+  }
+
+  function analyzedFor(asset: AssetCheck) {
+    return analyzedAssets.find((item) =>
+      String(item.key || "") === asset.key ||
+      normalizedPath(String(item.path || item.activePath || item.projectPath || "")) === normalizedPath(asset.path)
+    );
+  }
+
+  function smartTags(meta?: Record<string, unknown>) {
+    return Array.isArray(meta?.smartTags) ? meta.smartTags.map((tag) => String(tag)) : [];
+  }
+
+  function recommendationText(meta?: Record<string, unknown>) {
+    if (!Array.isArray(meta?.recommendations)) return "";
+    return meta.recommendations.map((item) => String((item as Record<string, unknown>).message || "")).join(" ");
+  }
+
+  function itemMatchesCollection(asset: { key: string; path: string }, collection: string) {
+    if (collection === "all") return true;
+    const entries = smartCollections[collection] || [];
+    return entries.some((item) =>
+      String(item.key || "") === asset.key ||
+      normalizedPath(String(item.path || "")) === normalizedPath(asset.path)
+    );
+  }
+
+  function usageCount(assetKey: string) {
+    let count = 0;
+    for (const scene of project.timeline || []) {
+      for (const layer of scene.layers || []) {
+        if (layer.asset === assetKey) count += 1;
+      }
+    }
+    for (const audio of project.audio || []) {
+      if (audio.asset === assetKey) count += 1;
+    }
+    for (const caption of project.captions || []) {
+      if (caption.asset === assetKey) count += 1;
+    }
+    return count;
+  }
+
+  function assetCategory(asset: AssetCheck): MediaBinCategory {
+    const joined = `${asset.key} ${asset.path}`.toLowerCase();
+    const ext = extension(asset.path);
+    if (joined.includes("download") || joined.includes("url_media") || joined.includes("http_")) return "url";
+    if (joined.includes("generated") || joined.includes(".ave_media") || joined.includes("thumbnail") || joined.includes("preview")) return "generated";
+    if (["srt", "vtt", "ass", "ssa", "txt"].includes(ext) || joined.includes("caption") || joined.includes("subtitle")) return "captions";
+    if (asset.type === "audio" && /(voice|voiceover|narration|vo_|_vo|dialog)/.test(joined)) return "voiceovers";
+    if (asset.type === "video") return "videos";
+    if (asset.type === "image") return "images";
+    if (asset.type === "audio") return "audio";
+    return "project";
+  }
+
+  function mediaIcon(asset: AssetCheck, category: MediaBinCategory) {
+    if (category === "captions") return <Captions size={30} />;
+    if (category === "voiceovers") return <Mic size={30} />;
+    if (category === "generated") return <Sparkles size={30} />;
+    if (category === "url") return <Download size={30} />;
+    if (asset.type === "image") return <Image size={30} />;
+    if (asset.type === "audio") return <Music size={30} />;
+    if (asset.type === "video") return <Video size={30} />;
+    return <FileText size={30} />;
+  }
+
+  function durationFor(meta?: Record<string, unknown>) {
+    const duration = Number(meta?.duration ?? meta?.durationSeconds ?? 0);
+    return Number.isFinite(duration) && duration > 0 ? `${duration.toFixed(duration > 20 ? 0 : 1)}s` : "-";
+  }
+
+  function durationValue(meta?: Record<string, unknown>) {
+    const duration = Number(meta?.duration ?? meta?.durationSeconds ?? 0);
+    return Number.isFinite(duration) ? duration : 0;
+  }
+
+  function dateValue(asset: AssetCheck, meta?: Record<string, unknown>) {
+    return Number(asset.modifiedMs ?? meta?.modifiedMs ?? meta?.mtimeMs ?? 0) || 0;
+  }
+
+  function thumbnailFor(asset: AssetCheck, meta?: Record<string, unknown>) {
+    const thumbnail = String(meta?.thumbnail || meta?.thumbnailPath || meta?.previewThumbnail || "");
+    if (thumbnail) return thumbnail;
+    return asset.type === "image" && asset.exists ? asset.path : "";
+  }
+
+  function renameAsset(asset: AssetCheck) {
+    const nextKey = window.prompt("Rename asset in project", asset.key)?.trim();
+    if (!nextKey || nextKey === asset.key) return;
+    if (project.assets?.[nextKey]) {
+      window.alert("That asset name already exists.");
+      return;
+    }
+    const next = structuredClone(project);
+    next.assets = { ...(next.assets || {}) };
+    const existingValue = next.assets[asset.key];
+    if (!existingValue) return;
+    next.assets[nextKey] = existingValue;
+    delete next.assets[asset.key];
+    for (const scene of next.timeline || []) {
+      for (const layer of scene.layers || []) {
+        if (layer.asset === asset.key) layer.asset = nextKey;
+      }
+    }
+    for (const audio of next.audio || []) {
+      if (audio.asset === asset.key) audio.asset = nextKey;
+    }
+    for (const caption of next.captions || []) {
+      if (caption.asset === asset.key) caption.asset = nextKey;
+    }
+    onProjectChange(next);
+  }
+
+  function removeFromProject(asset: AssetCheck) {
+    const used = usageCount(asset.key);
+    const message = used
+      ? `${asset.key} is used ${used} time(s). Remove it from the project and timeline references? This will not delete the original file.`
+      : `Remove ${asset.key} from the project? This will not delete the original file.`;
+    if (!window.confirm(message)) return;
+    const next = structuredClone(project);
+    next.assets = { ...(next.assets || {}) };
+    delete next.assets[asset.key];
+    next.timeline = (next.timeline || []).map((scene) => ({
+      ...scene,
+      layers: (scene.layers || []).filter((layer) => layer.asset !== asset.key)
+    }));
+    next.audio = (next.audio || []).filter((audio) => audio.asset !== asset.key);
+    next.captions = (next.captions || []).filter((caption) => caption.asset !== asset.key);
+    onProjectChange(next);
+  }
+
+  function contextAction(asset: AssetCheck, action: "add" | "preview" | "rename" | "replace" | "reveal" | "remove" | "details") {
+    setContextMenu(null);
+    if (action === "add") onDropAsset({ key: asset.key, path: asset.path, type: asset.type });
+    if (action === "preview") setPreviewAssetKey(asset.key);
+    if (action === "rename") renameAsset(asset);
+    if (action === "replace") onReplaceAsset(asset.key);
+    if (action === "reveal") void window.ave.revealPath(asset.path);
+    if (action === "remove") removeFromProject(asset);
+    if (action === "details") setDetailsAssetKey(asset.key);
+  }
+
+  const mediaItems = assets.map((asset) => {
+    const meta = analyzedFor(asset);
+    const category = assetCategory(asset);
+    const usedCount = usageCount(asset.key);
+    return {
+      ...asset,
+      category,
+      meta,
+      usedCount,
+      name: fileName(asset.path),
+      ext: extension(asset.path),
+      duration: durationFor(meta),
+      durationValue: durationValue(meta),
+      resolution: meta ? formatResolution(meta.resolution) : "-",
+      modifiedValue: dateValue(asset, meta),
+      thumbnail: thumbnailFor(asset, meta),
+      smartTags: smartTags(meta),
+      smartRecommendationText: recommendationText(meta),
+      searchText: String(meta?.searchText || "")
+    };
+  });
+
+  const filteredItems = mediaItems
+    .filter((asset) => activeCategory === "all" || asset.category === activeCategory)
+    .filter((asset) => itemMatchesCollection(asset, activeSmartCollection))
+    .filter((asset) => typeFilter === "all" || asset.type === typeFilter)
+    .filter((asset) => !showUnusedOnly || asset.usedCount === 0)
+    .filter((asset) => {
+      const haystack = `${asset.key} ${asset.name} ${asset.ext} ${asset.smartTags.join(" ")} ${asset.smartRecommendationText} ${asset.searchText}`.toLowerCase();
+      return haystack.includes(query.trim().toLowerCase());
+    })
+    .sort((a, b) => {
+      if (sortMode === "duration") return b.durationValue - a.durationValue;
+      if (sortMode === "date") return b.modifiedValue - a.modifiedValue;
+      return a.key.localeCompare(b.key);
+    });
+
+  const selectedPreview = mediaItems.find((asset) => asset.key === previewAssetKey);
+  const selectedDetails = mediaItems.find((asset) => asset.key === detailsAssetKey);
+  const menuAsset = contextMenu ? mediaItems.find((asset) => asset.key === contextMenu.assetKey) : null;
+
   return (
     <div className="assets-pane">
       <div className="asset-tools">
@@ -5264,8 +9142,75 @@ function AssetLibrary({
         <span>{Object.keys(project.assets || {}).length} JSON assets</span>
         <span>{assets.filter((asset) => !asset.exists).length} missing</span>
       </div>
-      <div className="asset-grid">
-        {assets.map((asset) => (
+      <div className="media-bin-layout">
+        <aside className="media-bin-categories">
+          {categories.map((category) => (
+            <button
+              key={category.key}
+              className={activeCategory === category.key ? "active" : ""}
+              onClick={() => setActiveCategory(category.key)}
+            >
+              {category.icon}
+              <span>{category.label}</span>
+              <small>{category.key === "all" ? mediaItems.length : mediaItems.filter((asset) => asset.category === category.key).length}</small>
+            </button>
+          ))}
+        </aside>
+        <section className="media-bin-main">
+          <div className="smart-assets-panel">
+            <div className="panel-head-row">
+              <div>
+                <span className="eyebrow">Smart Assets</span>
+                <strong>Collections and suggestions</strong>
+              </div>
+              <button onClick={onAnalyze}><Sparkles size={14} /> Refresh analysis</button>
+            </div>
+            <div className="smart-collection-grid">
+              <button className={activeSmartCollection === "all" ? "active" : ""} onClick={() => setActiveSmartCollection("all")}>
+                <strong>All analyzed</strong>
+                <span>{analyzedAssets.length || mediaItems.length}</span>
+              </button>
+              {Object.entries(smartCollections).map(([name, items]) => (
+                <button className={activeSmartCollection === name ? "active" : ""} key={name} onClick={() => setActiveSmartCollection(name)}>
+                  <strong>{name}</strong>
+                  <span>{items.length}</span>
+                </button>
+              ))}
+            </div>
+            <div className="smart-recommendations">
+              {smartRecommendations.slice(0, 4).map((item, index) => (
+                <button key={`${String(item.asset)}-${index}`} onClick={() => {
+                  setQuery(String(item.asset || ""));
+                  setDetailsAssetKey(String(item.asset || ""));
+                }}>
+                  <strong>{String(item.asset || "asset")}</strong>
+                  <span>{String(item.message || item.type || "AI suggestion")}</span>
+                </button>
+              ))}
+              {!smartRecommendations.length && <span className="muted">Run Analyze to create smart tags, collections, recommendations, and searchable words.</span>}
+            </div>
+          </div>
+          <div className="media-bin-search">
+            <label>
+              <Search size={14} />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by name, spoken words, tags, emotion, or activity..." />
+            </label>
+            <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as AssetCheck["type"] | "all")}>
+              <option value="all">All types</option>
+              <option value="video">Video</option>
+              <option value="image">Image</option>
+              <option value="audio">Audio</option>
+              <option value="unknown">Project/other</option>
+            </select>
+            <select value={sortMode} onChange={(event) => setSortMode(event.target.value as MediaSortMode)}>
+              <option value="name">Sort by name</option>
+              <option value="date">Sort by date</option>
+              <option value="duration">Sort by duration</option>
+            </select>
+            <label className="media-bin-checkbox"><input type="checkbox" checked={showUnusedOnly} onChange={(event) => setShowUnusedOnly(event.target.checked)} /> unused only</label>
+          </div>
+          <div className="asset-grid media-bin-grid">
+        {filteredItems.map((asset) => (
           <button
             key={asset.key}
             className={`asset-tile ${asset.exists ? "" : "missing"}`}
@@ -5273,14 +9218,67 @@ function AssetLibrary({
             draggable
             onDragStart={(event) => event.dataTransfer.setData("text/plain", asset.key)}
             onDoubleClick={() => onDropAsset({ key: asset.key, path: asset.path, type: asset.type })}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              setContextMenu({ x: event.clientX, y: event.clientY, assetKey: asset.key });
+            }}
           >
-            {asset.type === "image" && asset.exists ? <img src={window.ave.toFileUrl(asset.path)} alt="" /> : <Video size={30} />}
+            <span className="asset-thumb">
+              {asset.thumbnail ? <img src={window.ave.toFileUrl(asset.thumbnail)} alt="" /> : mediaIcon(asset, asset.category)}
+            </span>
             <strong>{asset.key}</strong>
-            <span>{asset.exists ? asset.type : "missing"}</span>
-            {analyzedAssets.find((item) => item.key === asset.key) && <span>analyzed</span>}
+            <span>{asset.name}</span>
+            <span>{asset.duration} / {asset.resolution}</span>
+            <span>{asset.ext || asset.type} / {asset.usedCount ? "used" : "unused"}</span>
+            {asset.smartTags.length > 0 ? (
+              <span className="asset-smart-tags">{asset.smartTags.slice(0, 3).map((tag) => <em key={tag}>{tag.replace(/_/g, " ")}</em>)}</span>
+            ) : asset.meta && <span>analyzed</span>}
+            <i className="asset-menu-hint"><MoreVertical size={14} /></i>
           </button>
         ))}
+            {!filteredItems.length && <div className="empty-media-bin">No media matches the current filters.</div>}
+          </div>
+        </section>
       </div>
+      {menuAsset && contextMenu && (
+        <div className="media-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(event) => event.stopPropagation()}>
+          <button onClick={() => contextAction(menuAsset, "add")}><Plus size={14} /> Add to timeline</button>
+          <button onClick={() => contextAction(menuAsset, "preview")}><Eye size={14} /> Preview</button>
+          <button onClick={() => contextAction(menuAsset, "rename")}><Pencil size={14} /> Rename</button>
+          <button onClick={() => contextAction(menuAsset, "replace")}><RefreshCcw size={14} /> Replace media</button>
+          <button onClick={() => contextAction(menuAsset, "reveal")}><FolderOpen size={14} /> Reveal in folder</button>
+          <button onClick={() => contextAction(menuAsset, "details")}><CircleHelp size={14} /> View file details</button>
+          <button className="danger" onClick={() => contextAction(menuAsset, "remove")}><Trash2 size={14} /> Remove from project</button>
+        </div>
+      )}
+      {selectedPreview && (
+        <div className="media-preview-panel">
+          <div>
+            <strong>Preview: {selectedPreview.key}</strong>
+            <button onClick={() => setPreviewAssetKey("")}><X size={14} /></button>
+          </div>
+          {selectedPreview.type === "video" && selectedPreview.exists && <video src={window.ave.toFileUrl(selectedPreview.path)} controls />}
+          {selectedPreview.type === "image" && selectedPreview.exists && <img src={window.ave.toFileUrl(selectedPreview.path)} alt="" />}
+          {selectedPreview.type === "audio" && selectedPreview.exists && <audio src={window.ave.toFileUrl(selectedPreview.path)} controls />}
+          {(!selectedPreview.exists || selectedPreview.type === "unknown") && <p className="muted">{selectedPreview.path}</p>}
+        </div>
+      )}
+      {selectedDetails && (
+        <div className="inspector-list media-details-panel">
+          <h3>File Details</h3>
+          <div className="inspector-row">
+            <strong>{selectedDetails.key}</strong>
+            <span>{selectedDetails.name}</span>
+            <small>{selectedDetails.path}</small>
+            <small>type {selectedDetails.type} / ext {selectedDetails.ext || "-"} / {selectedDetails.exists ? "exists" : "missing"}</small>
+            <small>duration {selectedDetails.duration} / resolution {selectedDetails.resolution} / usage {selectedDetails.usedCount ? "used" : "unused"}</small>
+            {selectedDetails.smartTags.length > 0 && <small>smart tags: {selectedDetails.smartTags.join(", ")}</small>}
+            {selectedDetails.smartRecommendationText && <small>suggestions: {selectedDetails.smartRecommendationText}</small>}
+          </div>
+          {selectedDetails.meta && <pre className="mini-pre">{JSON.stringify(selectedDetails.meta, null, 2)}</pre>}
+          <button onClick={() => setDetailsAssetKey("")}>Close details</button>
+        </div>
+      )}
       {assetReport && (
         <div className="inspector-list">
           <h3>Asset Intelligence</h3>
@@ -5383,11 +9381,15 @@ function StoryboardPane({ storyboard, onGenerate }: { storyboard: Record<string,
 function WorkflowPane({
   projectPath,
   history,
+  projectHealth,
   plugins,
   renderQueueItems,
   onExportPackage,
   onOpenPackage,
   onRollback,
+  onDuplicateVersion,
+  onCompareVersion,
+  onHealthCheck,
   onRefreshHistory,
   onPauseQueue,
   onResumeQueue,
@@ -5398,11 +9400,15 @@ function WorkflowPane({
 }: {
   projectPath: string | null;
   history: HistoryVersion[];
+  projectHealth: ProjectHealthReport | null;
   plugins: PluginInfo[];
   renderQueueItems: RenderQueueItem[];
   onExportPackage: () => void;
   onOpenPackage: () => void;
   onRollback: (versionId: string) => void;
+  onDuplicateVersion: (versionId: string) => void;
+  onCompareVersion: (versionId: string) => void;
+  onHealthCheck: () => void;
   onRefreshHistory: () => void;
   onPauseQueue: () => void;
   onResumeQueue: () => void;
@@ -5438,17 +9444,41 @@ function WorkflowPane({
         <h2><FileJson size={16} /> Version History</h2>
         <div className="toolbar">
           <button onClick={onRefreshHistory} disabled={!projectPath}><RefreshCw size={15} /> Refresh</button>
+          <button onClick={onHealthCheck}><CheckCircle2 size={15} /> Health Check</button>
         </div>
         <div className="list">
           {history.length === 0 && <span className="muted">No saved AI edits.</span>}
           {history.map((item) => (
             <div className="history-row" key={item.id}>
-              <strong>{item.id}</strong>
+              <strong>{String(item.name || item.summary || item.id)}</strong>
               <span>{item.summary || item.timestamp}</span>
+              <button disabled={!projectPath} onClick={() => onCompareVersion(item.id)}>Compare</button>
+              <button disabled={!projectPath} onClick={() => onDuplicateVersion(item.id)}>Duplicate</button>
               <button disabled={!projectPath} onClick={() => onRollback(item.id)}>Rollback</button>
             </div>
           ))}
         </div>
+      </section>
+      <section className="wide-panel">
+        <h2><CheckCircle2 size={16} /> Project Health</h2>
+        <div className="toolbar">
+          <button onClick={onHealthCheck}><RefreshCw size={15} /> Run Check</button>
+          {projectHealth && <span className={projectHealth.ready ? "status-pill ok" : "status-pill warn"}>{projectHealth.score}/100</span>}
+        </div>
+        {!projectHealth ? (
+          <p className="muted">Run a health check to catch missing files, corrupt JSON, unsupported formats, empty scenes, and failed renders.</p>
+        ) : (
+          <div className="list">
+            {projectHealth.issues.length === 0 && <span className="muted">No project health issues found.</span>}
+            {projectHealth.issues.slice(0, 8).map((issue) => (
+              <div className="queue-row expanded" key={issue.id}>
+                <span>{issue.message}</span>
+                <small className={issue.severity === "error" ? "failed" : issue.severity === "warning" ? "running" : "completed"}>{issue.severity}</small>
+                <small>{issue.suggestion}</small>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
       <section className="wide-panel">
         <h2><FolderOpen size={16} /> Project Package</h2>
@@ -6374,9 +10404,264 @@ function captionStyleDescription(style: string) {
     "Podcast Subtitles": "Comfortable multi-line subtitles for spoken content.",
     "Educational Clear": "Readable timing and restrained animation for tutorials.",
     "Cinematic Title": "Premium title-card style captions with slower emphasis.",
-    "Gaming Hype": "Fast, punchy captions with stronger emphasis words."
+    "Gaming Hype": "Fast, punchy captions with stronger emphasis words.",
+    "Clean subtitles": "Readable white subtitles with outline and safe lower placement.",
+    "TikTok word highlight": "Large vertical captions with word-by-word highlight metadata.",
+    "Gaming bold captions": "High-contrast bold captions with stronger outline.",
+    "Podcast lower-third": "Lower-third captions designed for spoken clips.",
+    "Educational captions": "Clear instructional captions with calmer timing.",
+    "Minimal cinematic captions": "Small premium captions with restrained motion."
   };
   return descriptions[style] || "Caption style preset";
+}
+
+function buildAiStudioPrompt(prompt: string, tasks: string[]) {
+  const cleanPrompt = prompt.trim() || "Create a polished short-form edit from the current project.";
+  if (!tasks.length) return cleanPrompt;
+  return `${cleanPrompt}\n\nRequested AI tasks: ${tasks.join(", ")}.\nCreate a reviewable edit plan first. Do not directly modify the timeline until the plan is approved.`;
+}
+
+function aiStyleDescription(style: string) {
+  const descriptions: Record<string, string> = {
+    Clean: "Polished edits with restrained motion and readable text.",
+    Gaming: "Fast cuts, bold captions, zoom hits, and energetic pacing.",
+    Cinematic: "Smooth reveals, premium titles, slower tension, and tasteful motion.",
+    Educational: "Clear sequence, slower captions, and minimal distractions.",
+    Podcast: "Lower-thirds, stable pacing, and speech-first captions.",
+    Hype: "Aggressive hook, quick cuts, music hits, and punchy effects.",
+    Minimal: "Quiet composition, subtle transitions, and low visual clutter.",
+    Meme: "Reaction timing, punchy captions, and comedic cut emphasis."
+  };
+  return descriptions[style] || "AI style preset";
+}
+
+function collectCaptionEntries(project: ProjectData): CaptionWorkflowEntry[] {
+  const entries: CaptionWorkflowEntry[] = [];
+  for (const [sceneIndex, scene] of (project.timeline || []).entries()) {
+    for (const [layerIndex, layer] of (scene.layers || []).entries()) {
+      if (!isTextLikeLayer(layer.type)) continue;
+      const layerStart = Number(layer.start || 0);
+      const items = Array.isArray(layer.items) ? layer.items as Array<Record<string, unknown>> : [];
+      if (items.length && (layer.type === "caption" || layer.type === "captions")) {
+        for (const [itemIndex, item] of items.entries()) {
+          const localStart = Number(item.start ?? 0);
+          const duration = Math.max(0.25, Number(item.duration ?? layer.duration ?? scene.duration ?? 1));
+          entries.push({
+            id: `${sceneIndex}:${layerIndex}:${itemIndex}`,
+            sceneId: scene.id,
+            sceneIndex,
+            layerIndex,
+            itemIndex,
+            type: layer.type,
+            text: String(item.text || ""),
+            localStart,
+            absoluteStart: Number(scene.start || 0) + layerStart + localStart,
+            duration,
+            layer: { ...layer, ...item }
+          });
+        }
+      } else {
+        const duration = Math.max(0.25, Number(layer.duration ?? scene.duration ?? 1));
+        entries.push({
+          id: `${sceneIndex}:${layerIndex}:layer`,
+          sceneId: scene.id,
+          sceneIndex,
+          layerIndex,
+          itemIndex: null,
+          type: layer.type,
+          text: String(layer.text || ""),
+          localStart: layerStart,
+          absoluteStart: Number(scene.start || 0) + layerStart,
+          duration,
+          layer
+        });
+      }
+    }
+  }
+  return entries.sort((a, b) => a.absoluteStart - b.absoluteStart);
+}
+
+function updateCaptionEntry(project: ProjectData, entry: CaptionWorkflowEntry, patch: Record<string, unknown>): ProjectData {
+  const next = structuredClone(project);
+  const scene = next.timeline?.[entry.sceneIndex];
+  const layer = scene?.layers?.[entry.layerIndex];
+  if (!scene || !layer) return project;
+  if (entry.itemIndex !== null && Array.isArray(layer.items)) {
+    const item = (layer.items as Array<Record<string, unknown>>)[entry.itemIndex];
+    if (!item) return project;
+    const itemPatch = { ...patch };
+    for (const key of ["fontFamily", "font", "fontSize", "color", "strokeWidth", "shadow", "box", "y", "animation", "wordHighlight", "highlightWords"]) {
+      if (key in itemPatch) {
+        (layer as Record<string, unknown>)[key] = itemPatch[key];
+        delete itemPatch[key];
+      }
+    }
+    Object.assign(item, itemPatch);
+  } else {
+    Object.assign(layer, patch);
+  }
+  next.metadata = {
+    ...(next.metadata || {}),
+    captionsWorkflow: {
+      updatedAt: new Date().toISOString(),
+      lastAction: "caption_edit"
+    }
+  };
+  return next;
+}
+
+function splitCaptionEntry(project: ProjectData, entry: CaptionWorkflowEntry): ProjectData {
+  const next = structuredClone(project);
+  const scene = next.timeline?.[entry.sceneIndex];
+  const layer = scene?.layers?.[entry.layerIndex];
+  if (!scene || !layer) return project;
+  const words = entry.text.trim().split(/\s+/).filter(Boolean);
+  if (words.length < 2) return project;
+  const firstText = words.slice(0, Math.ceil(words.length / 2)).join(" ");
+  const secondText = words.slice(Math.ceil(words.length / 2)).join(" ");
+  const firstDuration = Math.max(0.25, Number((entry.duration / 2).toFixed(3)));
+  const secondDuration = Math.max(0.25, Number((entry.duration - firstDuration).toFixed(3)));
+  if (entry.itemIndex !== null && Array.isArray(layer.items)) {
+    const items = layer.items as Array<Record<string, unknown>>;
+    items.splice(entry.itemIndex, 1,
+      { ...items[entry.itemIndex], text: firstText, duration: firstDuration },
+      { ...items[entry.itemIndex], text: secondText, start: Number((entry.localStart + firstDuration).toFixed(3)), duration: secondDuration }
+    );
+  } else {
+    layer.text = `${firstText}\n${secondText}`;
+  }
+  return next;
+}
+
+function mergeCaptionEntry(project: ProjectData, entry: CaptionWorkflowEntry): ProjectData {
+  if (entry.itemIndex === null) return project;
+  const next = structuredClone(project);
+  const layer = next.timeline?.[entry.sceneIndex]?.layers?.[entry.layerIndex];
+  if (!layer || !Array.isArray(layer.items)) return project;
+  const items = layer.items as Array<Record<string, unknown>>;
+  const current = items[entry.itemIndex];
+  const nextItem = items[entry.itemIndex + 1];
+  if (!current || !nextItem) return project;
+  current.text = `${String(current.text || "")} ${String(nextItem.text || "")}`.trim();
+  current.duration = Number(((Number(nextItem.start ?? entry.localStart) - entry.localStart) + Number(nextItem.duration ?? 0)).toFixed(3));
+  items.splice(entry.itemIndex + 1, 1);
+  return next;
+}
+
+function shiftAllCaptions(project: ProjectData, delta: number): ProjectData {
+  const next = structuredClone(project);
+  for (const caption of next.captions || []) {
+    caption.start = Math.max(0, Number((Number(caption.start || 0) + delta).toFixed(3)));
+  }
+  for (const scene of next.timeline || []) {
+    for (const layer of scene.layers || []) {
+      if (!isTextLikeLayer(layer.type)) continue;
+      if (Array.isArray(layer.items)) {
+        for (const item of layer.items as Array<Record<string, unknown>>) {
+          item.start = Math.max(0, Number((Number(item.start || 0) + delta).toFixed(3)));
+        }
+      } else {
+        layer.start = Math.max(0, Number((Number(layer.start || 0) + delta).toFixed(3)));
+      }
+    }
+  }
+  return next;
+}
+
+function autoFixCaptionTiming(project: ProjectData): ProjectData {
+  const next = structuredClone(project);
+  for (const scene of next.timeline || []) {
+    for (const layer of scene.layers || []) {
+      if (!isTextLikeLayer(layer.type)) continue;
+      layer.fontSize = Math.max(Number(layer.fontSize || 0), Number(next.project?.height || 1080) >= 1600 ? 58 : 42);
+      layer.y = layer.y || "bottom";
+      layer.strokeWidth = Math.max(Number(layer.strokeWidth || 0), 2);
+      layer.box = layer.box ?? true;
+      const sceneDuration = Number(scene.duration || 1);
+      if (Array.isArray(layer.items)) {
+        for (const item of layer.items as Array<Record<string, unknown>>) {
+          const start = Math.max(0, Number(item.start || 0));
+          item.start = Number(start.toFixed(3));
+          item.duration = Math.min(Math.max(Number(item.duration || 1.4), 1.2), Math.max(0.25, sceneDuration - start));
+        }
+      } else {
+        const start = Math.max(0, Number(layer.start || 0));
+        layer.start = Number(start.toFixed(3));
+        layer.duration = Math.min(Math.max(Number(layer.duration || Math.min(sceneDuration, 2.4)), 1.2), Math.max(0.25, sceneDuration - start));
+      }
+    }
+  }
+  return next;
+}
+
+function applyCaptionStylePreset(project: ProjectData, style: string): ProjectData {
+  const next = structuredClone(project);
+  const lower = style.toLowerCase();
+  for (const scene of next.timeline || []) {
+    for (const layer of scene.layers || []) {
+      if (!isTextLikeLayer(layer.type)) continue;
+      layer.type = layer.type === "text" ? layer.type : "caption";
+      layer.color = "#ffffff";
+      layer.strokeColor = "#000000";
+      layer.strokeWidth = /minimal/.test(lower) ? 1 : /gaming|tiktok/.test(lower) ? 4 : 2;
+      layer.shadow = /minimal/.test(lower) ? "none" : "soft";
+      layer.box = /podcast|educational|clean|minimal/.test(lower);
+      layer.boxColor = /minimal/.test(lower) ? "#00000066" : "#00000099";
+      layer.fontSize = /tiktok|gaming/.test(lower) ? 68 : /podcast|educational/.test(lower) ? 48 : /minimal/.test(lower) ? 40 : 54;
+      layer.y = /podcast/.test(lower) ? "lower_third" : /minimal/.test(lower) ? "bottom" : layer.y || "bottom";
+      layer.animation = { ...((layer.animation as Record<string, unknown>) || {}), in: /tiktok|gaming/.test(lower) ? "pop" : /minimal/.test(lower) ? "fade" : "slideUp" };
+      layer.wordHighlight = /word|tiktok|gaming/.test(lower);
+      layer.highlightWords = /word|tiktok|gaming/.test(lower);
+      layer.captionStyle = style;
+    }
+  }
+  next.metadata = { ...(next.metadata || {}), captionStylePreset: style };
+  return next;
+}
+
+function captionsToSrt(entries: CaptionWorkflowEntry[]) {
+  return entries.map((entry, index) => [
+    String(index + 1),
+    `${srtTime(entry.absoluteStart)} --> ${srtTime(entry.absoluteStart + entry.duration)}`,
+    entry.text,
+    ""
+  ].join("\n")).join("\n");
+}
+
+function captionsToVtt(entries: CaptionWorkflowEntry[]) {
+  return `WEBVTT\n\n${entries.map((entry) => [
+    `${vttTime(entry.absoluteStart)} --> ${vttTime(entry.absoluteStart + entry.duration)}`,
+    entry.text,
+    ""
+  ].join("\n")).join("\n")}`;
+}
+
+function srtTime(seconds: number) {
+  const value = Math.max(0, Number(seconds) || 0);
+  const hours = Math.floor(value / 3600);
+  const minutes = Math.floor((value % 3600) / 60);
+  const wholeSeconds = Math.floor(value % 60);
+  const ms = Math.floor((value - Math.floor(value)) * 1000);
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(wholeSeconds).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
+}
+
+function vttTime(seconds: number) {
+  return srtTime(seconds).replace(",", ".");
+}
+
+function downloadTextFile(filename: string, text: string) {
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function normalizeColorInput(value: unknown, fallback: string) {
+  const text = String(value || "").trim();
+  return /^#[0-9a-f]{6}$/i.test(text) ? text : fallback;
 }
 
 function applyAssistantInstruction(project: ProjectData, instruction: string): { project: ProjectData; summary: string } {
@@ -6458,6 +10743,190 @@ function applyAssistantInstruction(project: ProjectData, instruction: string): {
 function safePercent(value: number) {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(100, value));
+}
+
+function updateTaskRecord(task: ManagedTask, patch: Partial<ManagedTask>): ManagedTask {
+  const cleanPatch = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)) as Partial<ManagedTask>;
+  return {
+    ...task,
+    ...cleanPatch,
+    progress: Math.max(task.progress, Number(patch.progress ?? task.progress)),
+    updatedAt: Date.now()
+  };
+}
+
+function inferTaskKind(label: string, stage = ""): ManagedTaskKind {
+  const lower = `${label} ${stage}`.toLowerCase();
+  if (/render|export|package|re-export/.test(lower)) return "render_export";
+  if (/caption/.test(lower)) return "caption_generation";
+  if (/transcript|transcription|voice/.test(lower)) return "audio_transcription";
+  if (/thumbnail|storyboard/.test(lower)) return "thumbnail_generation";
+  if (/import|replace media|asset/.test(lower)) return "media_import";
+  if (/proxy|cache|preview/.test(lower)) return "proxy_generation";
+  if (/url|download/.test(lower)) return "url_download";
+  if (/preflight|quality|diagnostic|health|system check/.test(lower)) return "diagnostics";
+  if (/save|open|project|autosave|version|recovery/.test(lower)) return "project_io";
+  return "ai_analysis";
+}
+
+function taskKindLabel(kind: ManagedTaskKind) {
+  const labels: Record<ManagedTaskKind, string> = {
+    ai_analysis: "AI analysis",
+    caption_generation: "Captions",
+    audio_transcription: "Transcription",
+    render_export: "Render/export",
+    thumbnail_generation: "Thumbnails",
+    media_import: "Media import",
+    proxy_generation: "Proxy/preview",
+    url_download: "URL download",
+    project_io: "Project I/O",
+    diagnostics: "Diagnostics"
+  };
+  return labels[kind];
+}
+
+function taskStatusLabel(status: ManagedTaskStatus) {
+  if (status === "warning") return "needs attention";
+  return status;
+}
+
+function hardeningStatusHasUpdate(statusReport: HardeningStatus | null | undefined) {
+  if (!statusReport) return false;
+  const direct = [
+    statusReport.dependency,
+    statusReport.model,
+    statusReport.privacy,
+    statusReport.performance,
+    statusReport
+  ].some((section) => Boolean(section && typeof section === "object" && (
+    (section as Record<string, unknown>).updateAvailable === true ||
+    (section as Record<string, unknown>).updatesAvailable === true ||
+    (section as Record<string, unknown>).newVersionAvailable === true
+  )));
+  if (direct) return true;
+  const text = JSON.stringify(statusReport).toLowerCase();
+  return /update available|new version available|upgrade available/.test(text);
+}
+
+function buildManagedTasks(
+  localTasks: ManagedTask[],
+  renderQueueItems: RenderQueueItem[],
+  processing: ProcessingState,
+  systemMetrics: SystemMetrics | null
+): ManagedTask[] {
+  const now = Date.now();
+  const renderTasks: ManagedTask[] = renderQueueItems.map((job) => {
+    const status = job.status === "running"
+      ? "running"
+      : job.status === "queued"
+        ? "queued"
+        : job.status === "completed"
+          ? "completed"
+          : job.status === "canceled"
+            ? "canceled"
+            : "failed";
+    return {
+      id: `render-${job.runId}`,
+      runId: job.runId,
+      kind: "render_export",
+      label: job.label,
+      stage: job.status === "queued" ? "Waiting in render queue" : job.currentScene ? `Rendering ${job.currentScene}` : job.status === "completed" ? "Complete" : job.status === "failed" ? "Failed" : "Rendering",
+      status,
+      progress: safePercent(Number(job.progressPercent || 0)),
+      etaSeconds: job.estimatedRemainingSeconds,
+      currentAsset: job.outputPath,
+      currentScene: job.currentScene,
+      cpuPercent: systemMetrics?.cpuPercent,
+      gpuPercent: systemMetrics?.gpuPercent,
+      warnings: job.packageError ? [job.packageError] : [],
+      errors: job.status === "failed" ? [`Render exited with code ${job.exitCode ?? "unknown"}`] : [],
+      canPause: job.status === "running" || job.status === "queued",
+      canResume: job.status === "queued",
+      canCancel: job.status === "running" || job.status === "queued",
+      detail: job.packagePath || job.outputPath,
+      startedAt: now - 1,
+      updatedAt: now,
+      completedAt: job.status === "completed" || job.status === "failed" || job.status === "canceled" ? now : undefined
+    };
+  });
+  const activeLocalIds = new Set(renderTasks.map((task) => task.id));
+  const local = localTasks
+    .filter((task) => !activeLocalIds.has(task.id))
+    .map((task) => ({
+      ...task,
+      cpuPercent: task.status === "running" ? systemMetrics?.cpuPercent : task.cpuPercent,
+      gpuPercent: task.status === "running" ? systemMetrics?.gpuPercent : task.gpuPercent
+    }));
+  if (!renderTasks.length && processing.isActive && !local.some((task) => task.status === "running")) {
+    local.unshift({
+      id: "processing-current",
+      kind: inferTaskKind(processing.activeTask, processing.currentStage),
+      label: processing.activeTask,
+      stage: processing.currentStage,
+      status: "running",
+      progress: processing.progress,
+      etaSeconds: processing.etaSeconds,
+      currentAsset: processing.currentAsset,
+      currentScene: processing.currentScene,
+      cpuPercent: systemMetrics?.cpuPercent,
+      gpuPercent: systemMetrics?.gpuPercent,
+      canPause: false,
+      canResume: false,
+      canCancel: false,
+      startedAt: processing.startedAt || now,
+      updatedAt: now
+    });
+  }
+  return [...renderTasks, ...local]
+    .sort((a, b) => taskSortRank(a.status) - taskSortRank(b.status) || b.updatedAt - a.updatedAt)
+    .slice(0, 80);
+}
+
+function taskSortRank(status: ManagedTaskStatus) {
+  const rank: Record<ManagedTaskStatus, number> = {
+    running: 0,
+    queued: 1,
+    paused: 2,
+    warning: 3,
+    failed: 4,
+    canceled: 5,
+    completed: 6
+  };
+  return rank[status];
+}
+
+function activeRenderJob(renderQueueItems: RenderQueueItem[]) {
+  return renderQueueItems.find((job) => job.status === "running") ||
+    renderQueueItems.find((job) => job.status === "queued") ||
+    renderQueueItems.find((job) => job.status === "failed") ||
+    null;
+}
+
+function formatPercent(value?: number | null) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "-";
+  return `${Math.max(0, value).toFixed(value >= 10 ? 0 : 1)}%`;
+}
+
+function formatMemory(metrics: SystemMetrics | null) {
+  if (!metrics || !metrics.memoryTotalMb) return "-";
+  return `${Math.round(metrics.memoryUsedMb)} / ${Math.round(metrics.memoryTotalMb)} MB`;
+}
+
+function latestRenderIssues(logs: string[], activityFeed: ProcessingActivity[]): ProcessingActivity[] {
+  const logIssues = logs
+    .slice(-80)
+    .filter((line) => /error|warning|failed|traceback|exception/i.test(line))
+    .slice(-8)
+    .reverse()
+    .map((line, index) => ({
+      id: `log-${index}-${line.slice(0, 18)}`,
+      time: "",
+      label: line.length > 160 ? `${line.slice(0, 157)}...` : line,
+      detail: "render log",
+      kind: /error|failed|traceback|exception/i.test(line) ? "error" as ActivityKind : "warning" as ActivityKind
+    }));
+  const activityIssues = activityFeed.filter((item) => item.kind === "error" || item.kind === "warning").slice(0, 8);
+  return [...activityIssues, ...logIssues].slice(0, 10);
 }
 
 function mergeProcessingWorkers(workers: ProcessingWorker[], activeJob: RenderQueueItem | null): ProcessingWorker[] {
@@ -6633,6 +11102,586 @@ function classifyWorkflowInstruction(instruction: string) {
   if (lower.includes("faster") || lower.includes("slower") || lower.includes("pacing")) return "pacing_adjustment";
   if (lower.includes("motion")) return "motion_intensity";
   return "assistant_instruction";
+}
+
+function buildSuggestedEdits(
+  project: ProjectData,
+  proactiveAnalysis: ProactiveAnalysis,
+  assetReport: Record<string, unknown> | null,
+  finalPreflightReport: FinalPreflightReport | null
+): ProactiveSuggestion[] {
+  const items: ProactiveSuggestion[] = [];
+  const add = (item: ProactiveSuggestion | null | undefined) => {
+    if (!item || items.some((existing) => existing.id === item.id)) return;
+    items.push(item);
+  };
+  const scenes = [...(project.timeline || [])].sort((a, b) => Number(a.start || 0) - Number(b.start || 0));
+  const first = scenes[0];
+  if (first && Number(first.duration || 0) > 3.2) {
+    add(proactiveItem(
+      `suggest_shorten_intro_${first.id}`,
+      "workflow",
+      "info",
+      "Shorten intro",
+      `${first.id} runs ${Number(first.duration || 0).toFixed(1)}s. A tighter opening will reach the main edit faster.`,
+      "shorten_intro",
+      first.id,
+      first.start
+    ));
+  }
+  const firstCaption = first ? sceneCaptionText(first).trim() : "";
+  if (first && (!firstCaption || Number(first.duration || 0) > 3.2)) {
+    add(proactiveItem(
+      `suggest_add_hook_${first.id}`,
+      "opportunity",
+      "info",
+      "Add hook in first 3 seconds",
+      "Add a sharper opening title so viewers know the payoff immediately.",
+      "add_hook",
+      first.id,
+      first.start
+    ));
+  }
+  const captionCandidate = scenes.find((scene) => !sceneCaptionText(scene).trim() && Number(scene.duration || 0) >= 2);
+  if (captionCandidate) {
+    add(proactiveItem(
+      `suggest_caption_${captionCandidate.id}`,
+      "workflow",
+      "info",
+      "Add captions here",
+      `${captionCandidate.id} has enough screen time for a readable caption or lower-third.`,
+      "add_caption_here",
+      captionCandidate.id,
+      captionCandidate.start
+    ));
+  }
+  const transitionCandidate = scenes.slice(0, -1).find((scene) => !scene.transitionOut?.type || String(scene.transitionOut.type) === "cut");
+  if (transitionCandidate) {
+    add(proactiveItem(
+      `suggest_transition_${transitionCandidate.id}`,
+      "workflow",
+      "info",
+      "Add transition here",
+      `${transitionCandidate.id} currently exits with a cut. A subtle transition can smooth the beat.`,
+      "add_transition_here",
+      transitionCandidate.id,
+      Number(transitionCandidate.start || 0) + Number(transitionCandidate.duration || 0)
+    ));
+  }
+
+  const smartAssets = reportRecords(assetReport?.assets);
+  const libraryRecommendations = reportRecords(assetReport?.recommendations);
+  const highlightSource = smartAssets.find((asset) => {
+    const tags = stringList(asset.smartTags);
+    const score = Number(((asset.smartDetections as Record<string, unknown> | undefined)?.scores as Record<string, unknown> | undefined)?.highlight || 0);
+    return tags.includes("meme_reaction_potential") || tags.includes("action_high_motion") || score >= 0.45;
+  }) || collectionFirst(assetReport, "Highlights") || collectionFirst(assetReport, "Funny moments");
+  if (highlightSource) {
+    const assetKey = String(highlightSource.key || highlightSource.asset || "");
+    const moment = firstMoment(highlightSource);
+    const timelineTime = timelineTimeForAssetMoment(project, assetKey, Number(moment?.start || moment?.time || 0));
+    const scene = (typeof timelineTime === "number" ? sceneAtTime(project, timelineTime) : undefined) || sceneForAsset(project, assetKey) || first;
+    add(proactiveItem(
+      `suggest_zoom_${assetKey || scene?.id || "highlight"}_${hashTiny(JSON.stringify(moment || highlightSource))}`,
+      "opportunity",
+      "info",
+      "Add zoom on reaction",
+      "Smart Assets found a high-energy or reaction-style moment that could use a controlled focus zoom.",
+      "add_zoom",
+      scene?.id,
+      typeof timelineTime === "number" ? timelineTime : scene?.start
+    ));
+  }
+
+  const silenceSource = libraryRecommendations.find((item) => /silence|dead_space/i.test(String(item.type || item.message || "")))
+    || smartAssets.find((asset) => stringList(asset.smartTags).includes("silent_moments"))
+    || collectionFirst(assetReport, "Silent/dead sections");
+  if (silenceSource) {
+    const assetKey = String(silenceSource.asset || silenceSource.key || "");
+    const silenceMoment = firstSilentMoment(silenceSource) || firstMoment(silenceSource);
+    const silenceStart = Number(silenceMoment?.start || silenceMoment?.time || 0);
+    const silenceDuration = Math.max(0, Number(silenceMoment?.duration || (Number(silenceMoment?.end || 0) - silenceStart) || 0));
+    const timelineTime = timelineTimeForAssetMoment(project, assetKey, silenceStart);
+    const scene = (typeof timelineTime === "number" ? sceneAtTime(project, timelineTime) : undefined) || sceneForAsset(project, assetKey) || first;
+    const labelDuration = silenceDuration > 0 ? Math.round(silenceDuration) : 3;
+    add({
+      ...proactiveItem(
+        `suggest_remove_silence_${assetKey || scene?.id || "asset"}_${Math.round(silenceStart * 10)}`,
+        "issue",
+        "warning",
+        `Remove ${labelDuration}s silence`,
+        "Smart Assets detected a quiet/dead section. Applying will trim the matching scene non-destructively and add a review marker.",
+        "remove_silence",
+        scene?.id,
+        typeof timelineTime === "number" ? timelineTime : scene?.start
+      ),
+      duration: labelDuration
+    });
+  }
+
+  for (const issue of finalPreflightReport?.issues || []) {
+    const text = `${issue.category} ${issue.message} ${issue.suggestion || ""}`.toLowerCase();
+    if (/caption|safe|text/.test(text)) {
+      add(proactiveItem(`suggest_preflight_caption_${issue.id}`, "issue", issue.blocking ? "critical" : "warning", "Fix caption readability", issue.suggestion || issue.message, "improve_captions", issue.scene || undefined));
+    } else if (/gap|transition|overlap/.test(text)) {
+      add(proactiveItem(`suggest_preflight_transition_${issue.id}`, "issue", issue.blocking ? "critical" : "warning", "Review transition or gap", issue.suggestion || issue.message, "add_transition_here", issue.scene || undefined));
+    } else if (/missing|asset|file|media/.test(text)) {
+      add(proactiveItem(`suggest_preflight_media_${issue.id}`, "issue", issue.blocking ? "critical" : "warning", "Review missing media", issue.suggestion || issue.message, "review_scene", issue.scene || undefined));
+    }
+  }
+
+  for (const group of [proactiveAnalysis.issues, proactiveAnalysis.suggestions, proactiveAnalysis.opportunities, proactiveAnalysis.optimizations]) {
+    for (const item of group) add(item);
+  }
+  return items.slice(0, 16);
+}
+
+function buildFinalReviewChecks(
+  project: ProjectData,
+  checkedAssets: AssetCheck[],
+  assetReport: Record<string, unknown> | null,
+  finalPreflightReport: FinalPreflightReport | null,
+  preset: string,
+  exportFormat: string,
+  qualityReport: Record<string, unknown> | null
+): FinalReviewCheck[] {
+  const checks: FinalReviewCheck[] = [];
+  const add = (check: FinalReviewCheck) => {
+    if (!checks.some((item) => item.id === check.id)) checks.push(check);
+  };
+  const settings = project.project || {};
+  const width = Number(settings.width || 0);
+  const height = Number(settings.height || 0);
+  const fps = Number(settings.fps || 0);
+  const scenes = [...(project.timeline || [])].sort((a, b) => Number(a.start || 0) - Number(b.start || 0));
+  const reportAssets = reportRecords(assetReport?.assets);
+  const preflightIssues = finalPreflightReport?.issues || [];
+  const qualityIssues = reportRecords(qualityReport?.issues);
+  const projectAssets = project.assets || {};
+
+  const missingMessages: string[] = [];
+  for (const asset of checkedAssets) {
+    if (!asset.exists) missingMessages.push(`${asset.key} is missing`);
+  }
+  for (const asset of reportAssets) {
+    if (asset.exists === false) missingMessages.push(`${String(asset.key || asset.asset || "asset")} is missing`);
+  }
+  for (const scene of scenes) {
+    for (const layer of scene.layers || []) {
+      if (layer.asset && !projectAssets[String(layer.asset)]) missingMessages.push(`${scene.id} references undefined asset ${String(layer.asset)}`);
+    }
+  }
+  for (const track of project.audio || []) {
+    const key = String(track.asset || "");
+    if (key && !projectAssets[key]) missingMessages.push(`audio references undefined asset ${key}`);
+  }
+  if (preflightIssues.some((issue) => /missing|asset|media|file/i.test(`${issue.category} ${issue.message}`))) {
+    missingMessages.push("preflight found missing or broken media");
+  }
+  add(missingMessages.length ? {
+    id: "missing_media",
+    title: "Missing media",
+    detail: uniqueStrings(missingMessages).slice(0, 3).join(" / "),
+    severity: "error",
+    category: "assets",
+    suggestion: "Relink missing files in the Media Bin or remove the affected layers before export."
+  } : {
+    id: "missing_media_pass",
+    title: "Missing media",
+    detail: "All currently referenced project assets are defined and no missing-media preflight issue is active.",
+    severity: "pass",
+    category: "assets"
+  });
+
+  let gapIssue: FinalReviewCheck | null = null;
+  let cursor = 0;
+  for (const scene of scenes) {
+    const start = Number(scene.start || 0);
+    const duration = Math.max(0, Number(scene.duration || 0));
+    if (start - cursor > 0.1) {
+      gapIssue = {
+        id: `timeline_gap_${scene.id}`,
+        title: "Timeline gap",
+        detail: `There is a ${(start - cursor).toFixed(1)}s gap before ${scene.id}.`,
+        severity: "warning",
+        category: "timeline",
+        sceneId: scene.id,
+        time: cursor,
+        suggestion: "Close the gap, add a purposeful title card, or mark the pause as intentional."
+      };
+      break;
+    }
+    if (cursor - start > 0.1) {
+      gapIssue = {
+        id: `timeline_overlap_${scene.id}`,
+        title: "Timeline overlap",
+        detail: `${scene.id} overlaps the previous beat by ${(cursor - start).toFixed(1)}s.`,
+        severity: "warning",
+        category: "timeline",
+        sceneId: scene.id,
+        time: start,
+        suggestion: "Check scene timing and transition overlap before final export."
+      };
+      break;
+    }
+    cursor = Math.max(cursor, start + duration);
+  }
+  add(gapIssue || {
+    id: "timeline_gaps_pass",
+    title: "Timeline gaps",
+    detail: "Scene timing is continuous with no obvious empty timeline gaps.",
+    severity: "pass",
+    category: "timeline"
+  });
+
+  const safeZoneIssues: FinalReviewCheck[] = [];
+  const smallTextIssues: FinalReviewCheck[] = [];
+  const minReadableText = Math.max(height > width ? 40 : 30, Math.round(Math.min(width || 1080, height || 1080) * 0.028));
+  for (const scene of scenes) {
+    for (const layer of scene.layers || []) {
+      if (!isTextLikeLayer(layer.type)) continue;
+      if (width && height && isLayerOutsideSafeZone(layer, width, height)) {
+        safeZoneIssues.push({
+          id: `safe_zone_${scene.id}_${hashTiny(JSON.stringify(layer))}`,
+          title: "Captions/text outside safe zones",
+          detail: `${scene.id} has a text or caption layer close to the frame edge.`,
+          severity: "warning",
+          category: "readability",
+          sceneId: scene.id,
+          time: Number(scene.start || 0),
+          suggestion: "Move the layer inward or turn on safe-zone overlays in Preview."
+        });
+      }
+      const fontSize = Number(layer.fontSize || layer.size || 0);
+      if (fontSize > 0 && fontSize < minReadableText) {
+        smallTextIssues.push({
+          id: `small_text_${scene.id}_${hashTiny(JSON.stringify(layer))}`,
+          title: "Text too small",
+          detail: `${scene.id} uses ${Math.round(fontSize)}px text; ${minReadableText}px+ is safer for this canvas.`,
+          severity: "warning",
+          category: "readability",
+          sceneId: scene.id,
+          time: Number(scene.start || 0),
+          suggestion: "Increase text size or switch to a caption preset designed for the target platform."
+        });
+      }
+    }
+  }
+  const preflightSafeZone = preflightIssues.find((issue) => /safe|caption|text|contrast/i.test(`${issue.category} ${issue.message}`));
+  if (safeZoneIssues.length) {
+    add(safeZoneIssues[0]);
+  } else if (preflightSafeZone && /safe/i.test(`${preflightSafeZone.category} ${preflightSafeZone.message}`)) {
+    add({
+      id: `safe_zone_preflight_${preflightSafeZone.id}`,
+      title: "Captions/text outside safe zones",
+      detail: preflightSafeZone.message,
+      severity: preflightSafeZone.blocking ? "error" : "warning",
+      category: "readability",
+      sceneId: preflightSafeZone.scene || undefined,
+      suggestion: preflightSafeZone.suggestion || "Move captions/text into the safe title area."
+    });
+  } else {
+    add({
+      id: "safe_zone_pass",
+      title: "Captions/text safe zones",
+      detail: "No text layer is currently flagged outside the safe-zone bounds.",
+      severity: "pass",
+      category: "readability"
+    });
+  }
+  add(smallTextIssues[0] || {
+    id: "small_text_pass",
+    title: "Text size",
+    detail: "Text and caption layers with explicit font sizes meet the minimum readability target.",
+    severity: "pass",
+    category: "readability"
+  });
+
+  const audioWarnings = audioReviewWarnings(project, reportAssets);
+  if (audioWarnings.length) {
+    add(audioWarnings[0]);
+  } else {
+    add({
+      id: "audio_level_pass",
+      title: "Audio loudness",
+      detail: "Configured audio track volumes are within a safe range.",
+      severity: "pass",
+      category: "audio"
+    });
+  }
+
+  const blackFrameIssue = firstMatchingIssue([...preflightIssues, ...qualityIssues], /black frame|black_frames|black_start/i);
+  const frozenFrameIssue = firstMatchingIssue([...preflightIssues, ...qualityIssues], /frozen frame|frozen_frames|freeze_start/i);
+  if (blackFrameIssue) {
+    add({
+      id: "black_frames",
+      title: "Black frames",
+      detail: issueMessage(blackFrameIssue, "Black frames were detected in the preview or quality report."),
+      severity: "warning",
+      category: "visual quality",
+      suggestion: "Trim the section, soften the transition, or regenerate the affected scene."
+    });
+  } else {
+    add({
+      id: "black_frames_pass",
+      title: "Black frames",
+      detail: finalPreflightReport || qualityReport ? "No black frames were reported by the current checks." : "Run preflight or video quality analysis to inspect the rendered preview for black frames.",
+      severity: finalPreflightReport || qualityReport ? "pass" : "info",
+      category: "visual quality"
+    });
+  }
+  if (frozenFrameIssue) {
+    add({
+      id: "frozen_frames",
+      title: "Frozen frames",
+      detail: issueMessage(frozenFrameIssue, "Frozen frames were detected in the preview or quality report."),
+      severity: "warning",
+      category: "visual quality",
+      suggestion: "Regenerate the scene, replace the transition, or trim the frozen segment."
+    });
+  } else {
+    add({
+      id: "frozen_frames_pass",
+      title: "Frozen frames",
+      detail: finalPreflightReport || qualityReport ? "No frozen frames were reported by the current checks." : "Run preflight or video quality analysis to inspect the rendered preview for freezes.",
+      severity: finalPreflightReport || qualityReport ? "pass" : "info",
+      category: "visual quality"
+    });
+  }
+
+  const lowRes = reportAssets.find((asset) => {
+    const resolution = assetResolution(asset);
+    if (!resolution) return false;
+    const kind = String(asset.type || "");
+    if (!["video", "image"].includes(kind)) return false;
+    if (resolution.width < 720 || resolution.height < 720) return true;
+    if (width && height && (resolution.width < width * 0.55 || resolution.height < height * 0.55)) return true;
+    return false;
+  });
+  if (lowRes) {
+    const resolution = assetResolution(lowRes);
+    add({
+      id: `low_resolution_${String(lowRes.key || lowRes.asset || "asset")}`,
+      title: "Low-resolution clips",
+      detail: `${String(lowRes.key || lowRes.asset || "asset")} is ${resolution?.width || "?"}x${resolution?.height || "?"}, which may soften the final export.`,
+      severity: "warning",
+      category: "assets",
+      suggestion: "Use a higher-resolution source, lower the export preset, or accept the softness intentionally."
+    });
+  } else {
+    add({
+      id: "low_resolution_pass",
+      title: "Low-resolution clips",
+      detail: assetReport ? "Analyzed visual assets are not below the current resolution threshold." : "Run Smart Asset analysis to inspect imported media resolution.",
+      severity: assetReport ? "pass" : "info",
+      category: "assets"
+    });
+  }
+
+  const target = expectedPresetSize(preset);
+  if (target && width && height && !aspectRatiosClose(width, height, target.width, target.height)) {
+    add({
+      id: "wrong_aspect_ratio",
+      title: "Wrong aspect ratio",
+      detail: `${friendlyPresetName(preset)} expects ${target.width}x${target.height} style framing, but the project is ${width}x${height}.`,
+      severity: /short|tiktok|reel|instagram/i.test(preset) ? "error" : "warning",
+      category: "export",
+      suggestion: "Use Auto Social Reformat, switch the preset, or change project dimensions before export."
+    });
+  } else {
+    add({
+      id: "aspect_ratio_pass",
+      title: "Aspect ratio",
+      detail: target && width && height ? `Project framing matches ${friendlyPresetName(preset)} closely enough.` : "No target aspect-ratio mismatch is currently detectable.",
+      severity: "pass",
+      category: "export"
+    });
+  }
+
+  const exportIssues: string[] = [];
+  if (width && width % 2) exportIssues.push("project width is odd");
+  if (height && height % 2) exportIssues.push("project height is odd");
+  if (fps > 120) exportIssues.push("FPS is unusually high");
+  if (exportFormat === "gif" && (project.audio || []).length) exportIssues.push("GIF export will not include audio");
+  if (project.exportPreset && project.exportPreset !== preset) exportIssues.push(`project JSON preset is ${friendlyPresetName(project.exportPreset)} while UI preset is ${friendlyPresetName(preset)}`);
+  if (preflightIssues.some((issue) => /export|preset|format|codec/i.test(`${issue.category} ${issue.message}`))) exportIssues.push("preflight reported an export settings issue");
+  add(exportIssues.length ? {
+    id: "export_settings_mismatch",
+    title: "Export settings mismatch",
+    detail: uniqueStrings(exportIssues).join(" / "),
+    severity: exportIssues.some((item) => /odd|preflight/.test(item)) ? "error" : "warning",
+    category: "export",
+    suggestion: "Open Export settings, choose the target platform preset, then rerun review checks."
+  } : {
+    id: "export_settings_pass",
+    title: "Export settings",
+    detail: `${exportFormat.toUpperCase()} export settings look consistent with the current project configuration.`,
+    severity: "pass",
+    category: "export"
+  });
+
+  const musicRisk = copyrightMusicRisk(project, checkedAssets, reportAssets);
+  add(musicRisk || {
+    id: "copyright_music_pass",
+    title: "Music usage",
+    detail: "No obvious copyright-risk music filename was detected. Keep license notes with the project when available.",
+    severity: "pass",
+    category: "legal"
+  });
+
+  return checks;
+}
+
+function audioReviewWarnings(project: ProjectData, reportAssets: Array<Record<string, unknown>>): FinalReviewCheck[] {
+  const warnings: FinalReviewCheck[] = [];
+  const audioTracks = project.audio || [];
+  const hasVideo = (project.timeline || []).some((scene) => (scene.layers || []).some((layer) => layer.type === "video"));
+  if (!audioTracks.length) {
+    return hasVideo ? [{
+      id: "audio_missing_info",
+      title: "Audio too loud/quiet",
+      detail: "No dedicated audio/music track is configured, so the edit may feel silent after export.",
+      severity: "info",
+      category: "audio",
+      suggestion: "Add music/SFX or confirm that silence is intentional."
+    }] : [];
+  }
+  const reportByKey = new Map(reportAssets.map((asset) => [String(asset.key || asset.asset || ""), asset]));
+  for (const track of audioTracks) {
+    const assetKey = String(track.asset || "");
+    const volume = Number(track.volume ?? 1);
+    if (volume > 1 || volume >= 0.95) {
+      warnings.push({
+        id: `audio_loud_${assetKey || warnings.length}`,
+        title: "Audio too loud",
+        detail: `${assetKey || "Audio track"} is set to ${(volume * 100).toFixed(0)}% volume.`,
+        severity: "warning",
+        category: "audio",
+        suggestion: "Lower volume or normalize audio before export."
+      });
+    } else if (volume <= 0.01 || (volume > 0 && volume < 0.12)) {
+      warnings.push({
+        id: `audio_quiet_${assetKey || warnings.length}`,
+        title: "Audio too quiet",
+        detail: `${assetKey || "Audio track"} is set to ${(volume * 100).toFixed(0)}% volume.`,
+        severity: "warning",
+        category: "audio",
+        suggestion: "Raise volume or add loudness normalization before export."
+      });
+    }
+    const report = reportByKey.get(assetKey);
+    const loudness = report?.loudness && typeof report.loudness === "object" && !Array.isArray(report.loudness) ? report.loudness as Record<string, unknown> : null;
+    const peak = Number(loudness?.peak ?? 0);
+    const average = Number(loudness?.average ?? 0);
+    if (peak > 0.94) {
+      warnings.push({
+        id: `audio_peak_${assetKey || warnings.length}`,
+        title: "Audio clipping risk",
+        detail: `${assetKey || "Audio"} has very high detected peaks.`,
+        severity: "warning",
+        category: "audio",
+        suggestion: "Use limiter/normalization or lower the track volume."
+      });
+    } else if (peak > 0 && peak < 0.08 && average < 0.03) {
+      warnings.push({
+        id: `audio_low_peak_${assetKey || warnings.length}`,
+        title: "Audio may be too quiet",
+        detail: `${assetKey || "Audio"} has low detected loudness.`,
+        severity: "warning",
+        category: "audio",
+        suggestion: "Normalize loudness or increase the track volume."
+      });
+    }
+  }
+  return warnings;
+}
+
+function firstMatchingIssue(
+  issues: Array<FinalPreflightIssue | Record<string, unknown>>,
+  pattern: RegExp
+): FinalPreflightIssue | Record<string, unknown> | undefined {
+  return issues.find((issue) => pattern.test(`${String(issue.category || "")} ${String(issue.message || "")} ${String(issue.id || "")}`));
+}
+
+function issueMessage(issue: FinalPreflightIssue | Record<string, unknown>, fallback: string) {
+  return String(issue.message || fallback);
+}
+
+function assetResolution(asset: Record<string, unknown>): { width: number; height: number } | null {
+  const resolution = asset.resolution;
+  if (resolution && typeof resolution === "object" && !Array.isArray(resolution)) {
+    const record = resolution as Record<string, unknown>;
+    const width = Number(record.width || 0);
+    const height = Number(record.height || 0);
+    if (width > 0 && height > 0) return { width, height };
+  }
+  const width = Number(asset.width || 0);
+  const height = Number(asset.height || 0);
+  return width > 0 && height > 0 ? { width, height } : null;
+}
+
+function expectedPresetSize(preset: string): { width: number; height: number } | null {
+  const value = preset.toLowerCase();
+  if (/short|tiktok|reel|instagram/.test(value)) return { width: 1080, height: 1920 };
+  if (/square/.test(value)) return { width: 1080, height: 1080 };
+  if (/discord|720/.test(value)) return { width: 1280, height: 720 };
+  if (/4k|cinematic/.test(value)) return { width: 3840, height: 2160 };
+  if (/youtube|1080|landscape/.test(value)) return { width: 1920, height: 1080 };
+  return null;
+}
+
+function aspectRatiosClose(width: number, height: number, targetWidth: number, targetHeight: number) {
+  const actual = width / Math.max(height, 1);
+  const target = targetWidth / Math.max(targetHeight, 1);
+  return Math.abs(actual - target) <= 0.08;
+}
+
+function copyrightMusicRisk(
+  project: ProjectData,
+  checkedAssets: AssetCheck[],
+  reportAssets: Array<Record<string, unknown>>
+): FinalReviewCheck | null {
+  const licenses = project.metadata?.assetLicenses;
+  const licenseRecords = licenses && typeof licenses === "object" && !Array.isArray(licenses) ? licenses as Record<string, unknown> : {};
+  const audioKeys = new Set<string>();
+  for (const track of project.audio || []) {
+    if (track.asset) audioKeys.add(String(track.asset));
+  }
+  for (const asset of checkedAssets) {
+    if (asset.type === "audio") audioKeys.add(asset.key);
+  }
+  for (const asset of reportAssets) {
+    if (String(asset.type || "") === "audio") audioKeys.add(String(asset.key || asset.asset || ""));
+  }
+  if (!audioKeys.size) return null;
+  const namedPaths = [...audioKeys].map((key) => {
+    const fromProject = project.assets?.[key];
+    const checked = checkedAssets.find((asset) => asset.key === key)?.path;
+    const reported = String(reportAssets.find((asset) => String(asset.key || asset.asset || "") === key)?.path || "");
+    return { key, path: fromProject || checked || reported || key };
+  });
+  const risky = namedPaths.find((item) => /song|music|beat|track|copyright|commercial|download|youtube/i.test(`${item.key} ${item.path}`));
+  const unlicensed = namedPaths.find((item) => !licenseRecords[item.key] && !licenseRecords[item.path]);
+  if (risky || unlicensed) {
+    const item = risky || unlicensed || namedPaths[0];
+    return {
+      id: "copyright_music_risk",
+      title: "Copyright-risk music",
+      detail: `${shortFileName(item.path)} has no license/attribution metadata saved in this project.`,
+      severity: risky ? "warning" : "info",
+      category: "legal",
+      suggestion: "Verify usage rights before posting, or attach license notes in project metadata."
+    };
+  }
+  return null;
+}
+
+function shortFileName(pathValue: string) {
+  return pathValue.split(/[\\/]/).filter(Boolean).pop() || pathValue;
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
 function analyzeProactiveAssistance(
@@ -6826,6 +11875,307 @@ function captionWordRate(caption: string, duration: number) {
 function hasCaptionLayer(project: ProjectData) {
   if (project.captions?.length) return true;
   return (project.timeline || []).some((scene) => (scene.layers || []).some((layer) => layer.type === "caption" || layer.type === "captions"));
+}
+
+function exportReadinessWarnings(
+  project: ProjectData,
+  finalPreflight: FinalPreflightReport | null,
+  settings: { resolutionSetting: string; aspectRatio: string; burnCaptions: boolean }
+): ExportWarning[] {
+  const warnings: ExportWarning[] = [];
+  const add = (warning: ExportWarning) => {
+    if (!warnings.some((item) => item.id === warning.id)) warnings.push(warning);
+  };
+  const projectSettings = project.project || {};
+  const scenes = [...(project.timeline || [])].sort((a, b) => Number(a.start || 0) - Number(b.start || 0));
+  const assets = project.assets || {};
+  const desired = exportTargetSize(settings.resolutionSetting, settings.aspectRatio);
+  const width = Number(projectSettings.width || 0);
+  const height = Number(projectSettings.height || 0);
+  const supportedExts = new Set([
+    ".mp4", ".mov", ".mkv", ".avi", ".webm", ".flv", ".wmv", ".mpeg", ".mpg", ".m4v", ".ts", ".mts", ".m2ts",
+    ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tiff", ".svg",
+    ".mp3", ".wav", ".flac", ".ogg", ".aac", ".m4a"
+  ]);
+
+  if (!finalPreflight) {
+    add({
+      id: "preflight_not_run",
+      title: "Run preflight check",
+      message: "Final export should be checked for missing media, timing, captions, and platform settings first.",
+      suggestion: "Click Run Preflight before exporting the final file.",
+      severity: "info"
+    });
+  }
+
+  for (const issue of finalPreflight?.issues || []) {
+    const text = `${issue.category} ${issue.message}`.toLowerCase();
+    if (/missing|asset|media|file/.test(text)) {
+      add({
+        id: `preflight_media_${issue.id}`,
+        title: "Missing media",
+        message: issue.message,
+        suggestion: issue.suggestion || "Relink the asset or remove the layer before export.",
+        severity: issue.blocking ? "error" : "warning"
+      });
+    } else if (/unsupported|codec|decode|format/.test(text)) {
+      add({
+        id: `preflight_format_${issue.id}`,
+        title: "Unsupported file or codec",
+        message: issue.message,
+        suggestion: issue.suggestion || "Transcode or replace the source media before final export.",
+        severity: issue.blocking ? "error" : "warning"
+      });
+    } else if (/caption|safe|text/.test(text)) {
+      add({
+        id: `preflight_caption_${issue.id}`,
+        title: "Caption or safe-zone issue",
+        message: issue.message,
+        suggestion: issue.suggestion || "Move captions into the safe zone or adjust caption timing.",
+        severity: issue.blocking ? "error" : "warning"
+      });
+    }
+  }
+
+  if (width && height && (width < desired.width || height < desired.height)) {
+    add({
+      id: "low_resolution",
+      title: "Low resolution for preset",
+      message: `Project is ${width}x${height}, but ${settings.resolutionSetting} ${settings.aspectRatio} expects about ${desired.width}x${desired.height}.`,
+      suggestion: "Use a lower export resolution or switch the project/export preset to the target platform size.",
+      severity: "warning"
+    });
+  }
+
+  let cursor = 0;
+  for (const scene of scenes) {
+    const start = Number(scene.start || 0);
+    const duration = Number(scene.duration || 0);
+    if (start - cursor > 0.1) {
+      add({
+        id: `timeline_gap_${scene.id}`,
+        title: "Timeline gap",
+        message: `There is a ${(start - cursor).toFixed(1)}s gap before ${scene.id}.`,
+        suggestion: "Close the gap, add a title card, or confirm the pause is intentional.",
+        severity: "warning"
+      });
+      break;
+    }
+    if (cursor - start > 0.1) {
+      add({
+        id: `timeline_overlap_${scene.id}`,
+        title: "Timeline overlap",
+        message: `${scene.id} overlaps the previous scene by ${(cursor - start).toFixed(1)}s.`,
+        suggestion: "Check transition overlap and scene start times before exporting.",
+        severity: "warning"
+      });
+      break;
+    }
+    cursor = Math.max(cursor, start + Math.max(0, duration));
+  }
+
+  for (const [key, path] of Object.entries(assets)) {
+    const ext = mediaExtension(path);
+    if (!path || !path.trim()) {
+      add({
+        id: `empty_asset_${key}`,
+        title: "Missing media",
+        message: `Asset "${key}" has no file path.`,
+        suggestion: "Relink or remove this asset before exporting.",
+        severity: "error"
+      });
+    } else if (ext && !supportedExts.has(ext)) {
+      add({
+        id: `unsupported_asset_${key}`,
+        title: "Unsupported file type",
+        message: `${key} uses ${ext}, which is not in the supported import list.`,
+        suggestion: "Convert the asset to a supported video, image, or audio format.",
+        severity: "warning"
+      });
+    }
+  }
+
+  for (const scene of scenes) {
+    for (const layer of scene.layers || []) {
+      if (layer.asset && !assets[String(layer.asset)]) {
+        add({
+          id: `unresolved_layer_asset_${scene.id}_${String(layer.asset)}`,
+          title: "Missing media",
+          message: `${scene.id} references asset "${String(layer.asset)}", but it is not defined in project assets.`,
+          suggestion: "Add the asset to the Media Bin/project JSON or replace the layer asset key.",
+          severity: "error"
+        });
+      }
+      if (isTextLikeLayer(layer.type) && width && height && isLayerOutsideSafeZone(layer, width, height)) {
+        add({
+          id: `caption_safe_${scene.id}_${String(layer.text || layer.type)}`,
+          title: "Caption outside safe zone",
+          message: `${scene.id} has text or captions close to the edge of the frame.`,
+          suggestion: "Move the text inward or use the caption safe-zone overlay before export.",
+          severity: "warning"
+        });
+      }
+    }
+  }
+
+  if (hasCaptionLayer(project) && !settings.burnCaptions) {
+    add({
+      id: "captions_not_burned",
+      title: "Captions not burned in",
+      message: "This project has caption layers, but burn-in captions is turned off.",
+      suggestion: "Keep burn-in enabled for social exports, or export separate subtitle files from the delivery package.",
+      severity: "info"
+    });
+  }
+
+  return warnings;
+}
+
+function exportTargetSize(resolutionSetting: string, aspectRatio: string) {
+  const baseHeight = resolutionSetting === "4k" ? 2160 : resolutionSetting === "1440p" ? 1440 : resolutionSetting === "720p" ? 720 : 1080;
+  if (aspectRatio === "9:16") return { width: Math.round(baseHeight * 9 / 16), height: baseHeight };
+  if (aspectRatio === "1:1") return { width: baseHeight, height: baseHeight };
+  if (aspectRatio === "4:5") return { width: Math.round(baseHeight * 4 / 5), height: baseHeight };
+  return { width: Math.round(baseHeight * 16 / 9), height: baseHeight };
+}
+
+function mediaExtension(path: string) {
+  const clean = path.split(/[?#]/)[0] || "";
+  const match = clean.match(/\.[a-z0-9]+$/i);
+  return match ? match[0].toLowerCase() : "";
+}
+
+function isTextLikeLayer(type: string) {
+  return type === "text" || type === "caption" || type === "captions" || type === "lower_third";
+}
+
+function isLayerOutsideSafeZone(layer: Record<string, unknown>, width: number, height: number) {
+  const x = typeof layer.x === "number" ? layer.x : Number.NaN;
+  const y = typeof layer.y === "number" ? layer.y : Number.NaN;
+  const safeX = width * 0.06;
+  const safeY = height * 0.06;
+  const fontSize = Number(layer.fontSize || 0);
+  if (Number.isFinite(x) && (x < safeX || x > width - safeX)) return true;
+  if (Number.isFinite(y) && (y < safeY || y + Math.max(fontSize, 0) > height - safeY)) return true;
+  return false;
+}
+
+function reportRecords(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item)) : [];
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : [];
+}
+
+function collectionFirst(assetReport: Record<string, unknown> | null, name: string): Record<string, unknown> | null {
+  const collections = assetReport?.smartCollections;
+  if (!collections || typeof collections !== "object" || Array.isArray(collections)) return null;
+  return reportRecords((collections as Record<string, unknown>)[name])[0] || null;
+}
+
+function firstMoment(source: Record<string, unknown>): Record<string, unknown> | null {
+  for (const key of ["moments", "highlightCandidates", "loudMoments", "sceneChanges"]) {
+    const found = reportRecords(source[key])[0];
+    if (found) return found;
+  }
+  const smartMoments = source.smartMoments;
+  if (smartMoments && typeof smartMoments === "object" && !Array.isArray(smartMoments)) {
+    const record = smartMoments as Record<string, unknown>;
+    for (const key of ["highlightCandidates", "loudMoments", "sceneChanges", "silentMoments"]) {
+      const found = reportRecords(record[key])[0];
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function firstSilentMoment(source: Record<string, unknown>): Record<string, unknown> | null {
+  const direct = reportRecords(source.silentMoments)[0];
+  if (direct) return direct;
+  const smartMoments = source.smartMoments;
+  if (smartMoments && typeof smartMoments === "object" && !Array.isArray(smartMoments)) {
+    const found = reportRecords((smartMoments as Record<string, unknown>).silentMoments)[0];
+    if (found) return found;
+  }
+  return null;
+}
+
+function sceneForAsset(project: ProjectData, assetKey: string): SceneData | undefined {
+  if (!assetKey) return undefined;
+  return (project.timeline || []).find((scene) => (scene.layers || []).some((layer) => String(layer.asset || "") === assetKey));
+}
+
+function timelineTimeForAssetMoment(project: ProjectData, assetKey: string, sourceTime: number): number | undefined {
+  if (!assetKey || !Number.isFinite(sourceTime)) return undefined;
+  for (const scene of project.timeline || []) {
+    for (const layer of scene.layers || []) {
+      if (String(layer.asset || "") !== assetKey) continue;
+      const trimStart = Number(layer.trimStart || 0);
+      const localTime = Math.max(0, sourceTime - trimStart);
+      if (localTime <= Number(scene.duration || 0) + 0.1) return Number(scene.start || 0) + localTime;
+    }
+  }
+  return undefined;
+}
+
+function applyZoomSuggestion(project: ProjectData, sceneId: string, zoomAmount: number): ProjectData {
+  const next = structuredClone(project);
+  const scene = (next.timeline || []).find((item) => item.id === sceneId);
+  const layer = scene?.layers?.find((item) => item.type === "video" || item.type === "image");
+  if (!scene || !layer) return next;
+  const currentScale = Number(layer.scale || 1);
+  layer.scale = Number(Math.max(Number.isFinite(currentScale) ? currentScale : 1, zoomAmount).toFixed(3));
+  layer.animation = {
+    ...((layer.animation && typeof layer.animation === "object" && !Array.isArray(layer.animation)) ? layer.animation as Record<string, unknown> : {}),
+    in: "zoomIn",
+    duration: Number(Math.min(0.8, Math.max(0.35, Number(scene.duration || 1) * 0.2)).toFixed(3))
+  };
+  next.metadata = {
+    ...next.metadata,
+    suggestedEdits: {
+      ...((next.metadata?.suggestedEdits && typeof next.metadata.suggestedEdits === "object" && !Array.isArray(next.metadata.suggestedEdits)) ? next.metadata.suggestedEdits as Record<string, unknown> : {}),
+      lastApplied: "add_zoom",
+      appliedAt: new Date().toISOString()
+    }
+  };
+  return next;
+}
+
+function addCaptionSuggestion(project: ProjectData, sceneId: string): ProjectData {
+  const next = structuredClone(project);
+  const scene = (next.timeline || []).find((item) => item.id === sceneId);
+  if (!scene) return next;
+  const existing = scene.layers?.find((layer) => layer.type === "caption" || layer.type === "captions" || layer.type === "text");
+  if (existing && String(existing.text || "").trim()) return next;
+  const caption = sceneCaptionText(scene) || captionFromSceneId(scene.id) || "Key moment";
+  scene.layers = [
+    ...(scene.layers || []),
+    {
+      type: "caption",
+      items: [{ text: caption, start: 0, duration: Math.min(3, Math.max(0.8, Number(scene.duration || 2))) }],
+      layout: "caption_bottom",
+      fontSize: 52,
+      color: "#ffffff",
+      strokeColor: "#000000",
+      strokeWidth: 3,
+      shadow: true,
+      safeZone: true
+    }
+  ];
+  next.metadata = {
+    ...next.metadata,
+    suggestedEdits: {
+      ...((next.metadata?.suggestedEdits && typeof next.metadata.suggestedEdits === "object" && !Array.isArray(next.metadata.suggestedEdits)) ? next.metadata.suggestedEdits as Record<string, unknown> : {}),
+      lastApplied: "add_caption_here",
+      appliedAt: new Date().toISOString()
+    }
+  };
+  return next;
+}
+
+function captionFromSceneId(sceneId: string) {
+  return friendlyPresetName(sceneId).replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function replaceFirstSceneText(project: ProjectData, text: string): ProjectData {
@@ -7344,7 +12694,10 @@ function AiPanel({
           {generationReview.warnings.length > 0 && <small>Warnings: {generationReview.warnings.slice(0, 2).join(" | ")}</small>}
         </div>
       )}
-      <pre>{notes || "Project explanations and suggestions appear here."}</pre>
+      <details className="mini-details ai-advanced-reasoning">
+        <summary>Advanced: AI reasoning / logs</summary>
+        <pre className="mini-pre">{notes || "Project explanations and suggestions appear here."}</pre>
+      </details>
     </section>
   );
 }
@@ -7364,6 +12717,7 @@ function RenderPanel({
   setGpu,
   logs,
   renderQueueItems,
+  project,
   finalPreflight,
   onPreflight,
   onRepairPreflight,
@@ -7389,6 +12743,7 @@ function RenderPanel({
   setGpu: (value: boolean) => void;
   logs: string[];
   renderQueueItems: RenderQueueItem[];
+  project?: ProjectData | null;
   finalPreflight: FinalPreflightReport | null;
   onPreflight: () => void;
   onRepairPreflight: (mode: string, issueId?: string | null) => void;
@@ -7406,42 +12761,204 @@ function RenderPanel({
   const scores = finalPreflight?.scores || {};
   const summary = finalPreflight?.summary || {};
   const resolution = summary.resolution as Record<string, unknown> | undefined;
+  const [codec, setCodec] = useState("h264");
+  const [resolutionSetting, setResolutionSetting] = useState("1080p");
+  const [aspectRatio, setAspectRatio] = useState("16:9");
+  const [fpsSetting, setFpsSetting] = useState(60);
+  const [bitrateMode, setBitrateMode] = useState("auto");
+  const [customBitrate, setCustomBitrate] = useState("12M");
+  const [audioQuality, setAudioQuality] = useState("high");
+  const [burnCaptions, setBurnCaptions] = useState(true);
+  const [selectedPlatformKey, setSelectedPlatformKey] = useState("youtube");
+  const platformPresets = [
+    { key: "shorts", label: "YouTube Shorts", preset: "shorts", aspect: "9:16", resolution: "1080p", fps: 60, note: "Vertical 1080x1920, caption-safe." },
+    { key: "tiktok", label: "TikTok", preset: "tiktok_reels", aspect: "9:16", resolution: "1080p", fps: 60, note: "Fast vertical social export." },
+    { key: "instagram", label: "Instagram Reels", preset: "instagram_reels", aspect: "9:16", resolution: "1080p", fps: 60, note: "Reels-safe 1080x1920." },
+    { key: "youtube", label: "YouTube normal video", preset: "youtube_1080p", aspect: "16:9", resolution: "1080p", fps: 60, note: "Standard landscape upload." },
+    { key: "x", label: "Twitter/X", preset: "youtube_1080p", aspect: "16:9", resolution: "1080p", fps: 30, note: "MP4 landscape, social-safe bitrate." },
+    { key: "facebook", label: "Facebook", preset: "youtube_1080p", aspect: "16:9", resolution: "1080p", fps: 30, note: "Broad compatibility." },
+    { key: "custom", label: "Custom", preset, aspect: aspectRatio, resolution: resolutionSetting, fps: fpsSetting, note: "Use the manual settings below." }
+  ];
+  const selectedPlatform = platformPresets.find((item) => item.key === selectedPlatformKey) || platformPresets[6];
+  const exportWarnings = project ? exportReadinessWarnings(project, finalPreflight, { resolutionSetting, aspectRatio, burnCaptions }) : [];
+  const activeJob = activeQueueJob && ["running", "queued"].includes(activeQueueJob.status) ? activeQueueJob : null;
+
+  function applyPlatformPreset(item: typeof platformPresets[number]) {
+    setSelectedPlatformKey(item.key);
+    setPreset(item.preset);
+    setAspectRatio(item.aspect);
+    setResolutionSetting(item.resolution);
+    setFpsSetting(item.fps);
+    setExportFormat("mp4");
+    setQuality("final");
+  }
+
+  function applyResolution(value: string) {
+    setSelectedPlatformKey("custom");
+    setResolutionSetting(value);
+    if (value === "720p") setPreset("discord_720p");
+    if (value === "4k") setPreset("cinematic_4k");
+    if (value === "1080p" && aspectRatio === "1:1") setPreset("square");
+    if (value === "1080p" && aspectRatio === "9:16") setPreset(preset === "instagram_reels" ? "instagram_reels" : "shorts");
+    if (value === "1080p" && aspectRatio === "16:9") setPreset("youtube_1080p");
+    if (value === "1440p") setPreset("high_quality_archive");
+  }
+
+  function applyAspect(value: string) {
+    setSelectedPlatformKey("custom");
+    setAspectRatio(value);
+    if (value === "9:16") setPreset(preset === "tiktok_reels" || preset === "instagram_reels" ? preset : "shorts");
+    if (value === "1:1") setPreset("square");
+    if (value === "16:9" || value === "4:5") setPreset(resolutionSetting === "720p" ? "discord_720p" : "youtube_1080p");
+  }
+
+  function finalExport() {
+    if (!finalPreflight) {
+      onPreflight();
+      return;
+    }
+    onFinal();
+  }
+
   return (
-    <section className="panel render-panel">
-      <h2><MonitorPlay size={16} /> Render Panel</h2>
-      <label>
-        Preset
-        <select value={preset} onChange={(event) => setPreset(event.target.value)}>
-          {["youtube_1080p", "tiktok_reels", "shorts", "square", "discord_720p", "instagram_reels", "high_quality_archive", "low_size_preview", "cinematic_4k"].map((item) => <option key={item}>{item}</option>)}
-        </select>
-      </label>
-      <label>
-        Format
-        <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as "mp4" | "mov" | "mkv" | "webm" | "gif")}>
-          {["mp4", "mov", "mkv", "webm", "gif"].map((item) => <option key={item}>{item}</option>)}
-        </select>
-      </label>
-      <label>
-        Quality
-        <select value={quality} onChange={(event) => setQuality(event.target.value as "preview" | "final")}>
-          <option value="preview">preview</option>
-          <option value="final">final</option>
-        </select>
-      </label>
+    <section className="panel render-panel export-workflow-panel">
+      <div className="export-header-row">
+        <div>
+          <span className="eyebrow">Export</span>
+          <h2><MonitorPlay size={16} /> Export Workflow</h2>
+          <p className="muted">Presets and checks wrap the existing FFmpeg exporter. JSON remains the source of truth.</p>
+        </div>
+        <span className={finalPreflight?.ready ? "status-pill ok" : finalPreflight ? "status-pill warn" : "status-pill"}>{finalPreflight ? (finalPreflight.ready ? "preflight ready" : "needs fixes") : "preflight not run"}</span>
+      </div>
+
+      <div className="platform-preset-grid">
+        {platformPresets.map((item) => (
+          <button key={item.key} className={selectedPlatform?.key === item.key ? "active" : ""} onClick={() => applyPlatformPreset(item)}>
+            <strong>{item.label}</strong>
+            <span>{item.aspect} / {item.resolution} / {item.fps}fps</span>
+            <small>{item.note}</small>
+          </button>
+        ))}
+      </div>
+
+      <div className="export-settings-grid">
+        <label>
+          Format
+          <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as "mp4" | "mov" | "mkv" | "webm" | "gif")}>
+            <option value="mp4">MP4</option>
+            <option value="mov">MOV</option>
+            <option value="webm">WebM</option>
+          </select>
+        </label>
+        <label>
+          Codec
+          <select value={codec} onChange={(event) => setCodec(event.target.value)}>
+            <option value="h264">H.264</option>
+            <option value="h265" disabled>H.265 / HEVC if supported</option>
+            <option value="av1" disabled>AV1 if supported</option>
+          </select>
+        </label>
+        <label>
+          Resolution
+          <select value={resolutionSetting} onChange={(event) => applyResolution(event.target.value)}>
+            <option value="720p">720p</option>
+            <option value="1080p">1080p</option>
+            <option value="1440p">1440p</option>
+            <option value="4k">4K</option>
+          </select>
+        </label>
+        <label>
+          Aspect ratio
+          <select value={aspectRatio} onChange={(event) => applyAspect(event.target.value)}>
+            <option value="16:9">16:9</option>
+            <option value="9:16">9:16</option>
+            <option value="1:1">1:1</option>
+            <option value="4:5">4:5</option>
+          </select>
+        </label>
+        <label>
+          FPS
+          <select value={fpsSetting} onChange={(event) => setFpsSetting(Number(event.target.value))}>
+            <option value={24}>24</option>
+            <option value={30}>30</option>
+            <option value={60}>60</option>
+          </select>
+        </label>
+        <label>
+          Bitrate
+          <select value={bitrateMode} onChange={(event) => setBitrateMode(event.target.value)}>
+            <option value="auto">Auto</option>
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+        {bitrateMode === "custom" && (
+          <label>
+            Custom bitrate
+            <input value={customBitrate} onChange={(event) => setCustomBitrate(event.target.value)} placeholder="12M" />
+          </label>
+        )}
+        <label>
+          Audio quality
+          <select value={audioQuality} onChange={(event) => setAudioQuality(event.target.value)}>
+            <option value="standard">Standard AAC</option>
+            <option value="high">High AAC</option>
+            <option value="archive">Archive quality</option>
+          </select>
+        </label>
+        <label className="check-control">
+          <input type="checkbox" checked={burnCaptions} onChange={(event) => setBurnCaptions(event.target.checked)} />
+          Burn captions into video
+        </label>
+      </div>
+
+      <div className="export-engine-note">
+        <span>engine preset <strong>{preset}</strong></span>
+        <span>codec path <strong>{codec === "h264" ? "H.264 via current FFmpeg renderer" : "requires supported encoder"}</strong></span>
+        <span>bitrate <strong>{bitrateMode === "auto" ? "preset auto" : customBitrate}</strong></span>
+        <span>captions <strong>{burnCaptions ? "burned-in timeline text/captions" : "external/subtitle workflow"}</strong></span>
+      </div>
+
+      <div className="export-preflight-strip">
+        <div>
+          <strong>Before export</strong>
+          <span>{exportWarnings.length ? `${exportWarnings.length} item(s) need review` : "No local warnings detected"}</span>
+        </div>
+        <div className="button-grid compact">
+          <button onClick={onPreflight}><CheckCircle2 size={15} /> Run Preflight</button>
+          <button onClick={onPreview}><Play size={15} /> Preview Render</button>
+          <button onClick={finalExport}><MonitorPlay size={15} /> {finalPreflight ? "Export Final" : "Run Preflight First"}</button>
+          <button onClick={onOpenOutput}><FolderOpen size={15} /> Open Output</button>
+        </div>
+      </div>
+
+      {exportWarnings.length > 0 && (
+        <div className="export-warning-list">
+          {exportWarnings.slice(0, 8).map((warning) => (
+            <div className={`preflight-issue ${warning.severity}`} key={warning.id}>
+              <strong>{warning.title}</strong>
+              <span>{warning.message}</span>
+              <small>{warning.suggestion}</small>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="toggles">
         <label><input type="checkbox" checked={cache} onChange={(event) => setCache(event.target.checked)} /> cache</label>
-        <label><input type="checkbox" checked={resume} onChange={(event) => setResume(event.target.checked)} /> resume</label>
-        <label><input type="checkbox" checked={gpu} onChange={(event) => setGpu(event.target.checked)} /> GPU</label>
+        <label><input type="checkbox" checked={resume} onChange={(event) => setResume(event.target.checked)} /> resume failed render</label>
+        <label><input type="checkbox" checked={gpu} onChange={(event) => setGpu(event.target.checked)} /> GPU acceleration</label>
+        <label>
+          Quality
+          <select value={quality} onChange={(event) => setQuality(event.target.value as "preview" | "final")}>
+            <option value="preview">preview</option>
+            <option value="final">final</option>
+          </select>
+        </label>
       </div>
-      <div className="button-grid">
-        <button onClick={onPreview}><Play size={15} /> Preview</button>
-        <button onClick={onPreflight}><CheckCircle2 size={15} /> Preflight</button>
-        <button onClick={onFinal}><MonitorPlay size={15} /> Final</button>
-        <button onClick={onOpenOutput}><FolderOpen size={15} /> Output</button>
-      </div>
+
       <div className="render-queue-mini">
         <div className="review-header">
-          <strong>Final Export Queue</strong>
+          <strong>Export Popup / Queue</strong>
           <span className="muted">{renderQueueItems.length ? `${renderQueueItems.length} job(s)` : "idle"}</span>
         </div>
         <div className="button-grid compact">
@@ -7454,7 +12971,8 @@ function RenderPanel({
             <div className="queue-row expanded" key={job.runId}>
               <div>
                 <strong>{job.label}</strong>
-                <small>{job.currentScene || job.status} | ETA {formatEta(job.estimatedRemainingSeconds)}</small>
+                <small>stage {job.currentScene || job.status} | ETA {formatEta(job.estimatedRemainingSeconds)}</small>
+                <small>progress {Math.round(Number(job.progressPercent || 0))}% | {job.outputPath}</small>
                 {job.packagePath && <small>package: {job.packagePath}</small>}
                 {job.packageError && <small className="error">{job.packageError}</small>}
               </div>
@@ -7493,9 +13011,7 @@ function RenderPanel({
             <span>thumbnail {String(Boolean(summary.thumbnailIncluded))}</span>
             <span>warnings {String(summary.warningsRemaining ?? finalPreflight.warningsRemaining ?? 0)}</span>
           </div>
-          <div className="button-grid compact">
-            <button onClick={() => onRepairPreflight("all")}><Wand2 size={14} /> Fix Safe</button>
-          </div>
+          <p className="muted">Suggested repairs are applied only after you approve the individual issue below. No bulk auto-fix runs from this panel.</p>
           <div className="preflight-issues">
             {issues.slice(0, 6).map((issue) => (
               <div className={`preflight-issue ${issue.severity}`} key={issue.id}>
@@ -7503,8 +13019,9 @@ function RenderPanel({
                 <span>{issue.message}</span>
                 <small>{issue.suggestion || "Review before export."}</small>
                 <div className="button-grid compact">
-                  {issue.safeAutoFix && <button onClick={() => onRepairPreflight("selected", issue.id)}>Fix</button>}
-                  <button onClick={() => onRepairPreflight("ignore", issue.id)}>Accept</button>
+                  {issue.safeAutoFix && !issue.accepted && <button onClick={() => onRepairPreflight("selected", issue.id)}><Wand2 size={14} /> Approve fix</button>}
+                  {!issue.accepted && <button onClick={() => onRepairPreflight("ignore", issue.id)}><CheckCircle2 size={14} /> Accept as intentional</button>}
+                  {issue.accepted && <span className="status-pill ok">accepted</span>}
                 </div>
               </div>
             ))}

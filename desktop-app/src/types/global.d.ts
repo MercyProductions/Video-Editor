@@ -34,6 +34,8 @@ declare global {
     listHistory: (payload: { projectPath?: string | null }) => Promise<HistoryVersion[]>;
     recordHistory: (payload: { projectPath?: string | null; oldText: string; newText: string; summary: Record<string, unknown> }) => Promise<HistoryVersion | null>;
     rollbackHistory: (payload: { projectPath: string; versionId: string }) => Promise<ProjectFile>;
+    duplicateHistory: (payload: { projectPath: string; versionId: string }) => Promise<ProjectFile>;
+    compareHistory: (payload: { projectPath: string; versionId: string }) => Promise<VersionComparison>;
     exportPackage: (payload: { text: string; projectPath?: string | null }) => Promise<EngineJsonResult>;
     openPackage: () => Promise<ProjectFile | null>;
     listPlugins: () => Promise<PluginInfo[]>;
@@ -58,12 +60,16 @@ declare global {
     exportTemplatePack: (payload: { template: string }) => Promise<EngineJsonResult>;
     installTemplatePack: () => Promise<EngineJsonResult>;
     getSettings: () => Promise<AppSettings>;
+    pickExportFolder: () => Promise<string | null>;
     saveSettings: (settings: AppSettings) => Promise<AppSettings>;
     logFriction: (payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
     getFrictionReport: () => Promise<FrictionReport>;
-    autosaveProject: (payload: { text: string; projectPath?: string | null }) => Promise<RecoveryPoint | null>;
+    startupRecovery: () => Promise<StartupRecoveryState>;
+    latestRecovery: () => Promise<RecoveryPoint | null>;
+    autosaveProject: (payload: { text: string; projectPath?: string | null; reason?: string | null }) => Promise<RecoveryPoint | null>;
     listRecovery: (payload: { projectPath?: string | null }) => Promise<RecoveryPoint[]>;
     restoreRecovery: (payload: { sourcePath: string; targetPath?: string | null }) => Promise<ProjectFile>;
+    projectHealth: (payload: { text: string; projectPath?: string | null }) => Promise<ProjectHealthReport>;
     getHardeningStatus: () => Promise<HardeningStatus>;
     workflowDashboard: (payload: { text: string; projectPath?: string | null }) => Promise<EngineJsonResult>;
     getAdaptiveWorkflowMemory: (payload: { text?: string | null; projectPath?: string | null; profile?: string | null }) => Promise<AdaptiveWorkflowMemory>;
@@ -85,6 +91,16 @@ declare global {
     prioritizeRenderJob: (payload: { runId: string; priority: number }) => Promise<RenderQueueItem[]>;
     revealPath: (path: string) => Promise<void>;
     openOutputFolder: () => Promise<void>;
+    systemMetrics: () => Promise<{
+      cpuPercent: number;
+      gpuPercent: number;
+      memoryUsedMb: number;
+      memoryTotalMb: number;
+      gpuProcessActive: boolean;
+      gpuMode: string;
+      sampledAt: number;
+    }>;
+    popOutPanel: (payload: { panel: "preview" | "timeline" | "inspector"; title?: string; projectPath?: string | null; previewPath?: string | null }) => Promise<{ panel: string; bounds: MonitorPanelBounds }>;
     toFileUrl: (path: string) => string;
     onRenderLog: (callback: (event: RenderLogEvent) => void) => () => void;
     onRenderComplete: (callback: (event: RenderCompleteEvent) => void) => () => void;
@@ -184,6 +200,8 @@ declare global {
     path: string;
     exists: boolean;
     type: "image" | "video" | "audio" | "unknown";
+    modifiedMs?: number;
+    fileSize?: number;
   };
 
   type RenderRequest = {
@@ -224,8 +242,18 @@ declare global {
   type HistoryVersion = {
     id: string;
     timestamp?: string;
+    name?: string;
     summary?: string;
     [key: string]: unknown;
+  };
+
+  type VersionComparison = {
+    versionId: string;
+    old: Record<string, number>;
+    new: Record<string, number>;
+    changes: string[];
+    oldText: string;
+    newText: string;
   };
 
   type PluginInfo = {
@@ -251,12 +279,39 @@ declare global {
     [key: string]: unknown;
   };
 
+  type WorkspacePreset = "beginner" | "ai" | "editing" | "captions" | "export" | "minimal";
+  type WorkspacePanelDock = "standard" | "inspector_left" | "media_right" | "preview_focus";
+  type UiScale = "small" | "medium" | "large" | "auto";
+  type AppTheme = "aegis" | "graphite" | "midnight" | "slate" | "high_contrast" | "light";
+
+  type MonitorPanelBounds = {
+    x?: number;
+    y?: number;
+    width: number;
+    height: number;
+  };
+
   type AppSettings = {
-    theme: "graphite" | "midnight" | "light";
+    theme: AppTheme;
     autosave: boolean;
     autosaveIntervalSeconds: number;
     previewTimeSeconds: number;
     keyboardShortcuts: boolean;
+    onboardingComplete: boolean;
+    defaultWorkflow: "quick" | "guided" | "advanced";
+    defaultPlatform: string;
+    defaultStyle: string;
+    defaultExportFolder?: string | null;
+    beginnerTips: boolean;
+    workspacePreset: WorkspacePreset;
+    panelDock: WorkspacePanelDock;
+    uiScale: UiScale;
+    accentColor: string;
+    leftRailWidth: number;
+    rightRailWidth: number;
+    leftRailOpen: boolean;
+    rightRailOpen: boolean;
+    monitorPositions?: Record<string, MonitorPanelBounds>;
   };
 
   type FrictionReport = {
@@ -291,6 +346,30 @@ declare global {
     path: string;
     timestamp?: string;
     size?: number;
+    projectId?: string;
+  };
+
+  type StartupRecoveryState = {
+    crashed: boolean;
+    lastSavedAt?: string;
+    latestRecovery?: RecoveryPoint | null;
+  };
+
+  type ProjectHealthIssue = {
+    id: string;
+    severity: "error" | "warning" | "info";
+    message: string;
+    suggestion: string;
+  };
+
+  type ProjectHealthReport = {
+    ready: boolean;
+    score: number;
+    checkedAt: string;
+    issues: ProjectHealthIssue[];
+    assets: AssetCheck[];
+    failedRenders: number;
+    sceneCount?: number;
   };
 
   type HardeningStatus = {
