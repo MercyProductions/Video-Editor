@@ -2406,3 +2406,51 @@ textarea {
     display: none;
   }
 }
+
+/* Beginner Mode should keep creation controls visible while the engine works. */
+.mode-beginner .processing-slot {
+  max-height: min(34vh, 310px);
+  overflow: auto;
+}
+
+.mode-beginner .processing-dock {
+  max-height: min(34vh, 310px);
+  overflow: auto;
+}
+
+.mode-beginner .processing-dock.collapsed {
+  max-height: 46px;
+  overflow: hidden;
+}
+
+.mode-beginner .collaboration-grid,
+.mode-beginner .processing-bottom {
+  grid-template-columns: 1fr;
+}
+
+.mode-beginner .live-scenes,
+.mode-beginner .collab-sidebar {
+  max-height: 220px;
+}
+
+.mode-beginner .beginner-pane {
+  overflow-x: hidden;
+}
+
+@media (max-width: 1320px) {
+  .mode-beginner .metric-grid,
+  .mode-beginner .smart-defaults,
+  .mode-beginner .adaptive-suggestions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .mode-beginner .beginner-grid,
+  .mode-beginner .metric-grid,
+  .mode-beginner .smart-defaults,
+  .mode-beginner .adaptive-suggestions,
+  .mode-beginner .guidance-steps {
+    grid-template-columns: 1fr;
+  }
+}

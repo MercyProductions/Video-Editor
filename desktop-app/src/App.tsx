@@ -479,6 +479,10 @@ function App() {
   }, [projectPath]);
 
   useEffect(() => {
+    if (uiMode === "beginner") setProcessingCollapsed(true);
+  }, [uiMode]);
+
+  useEffect(() => {
     if (!project || processing.isActive || renderQueueItems.some((item) => item.status === "queued" || item.status === "running")) return;
     const timer = window.setTimeout(() => {
       setBackgroundImprovements(buildBackgroundImprovementQueue(project, adaptiveMemory, proactiveAnalysis));
@@ -542,7 +546,7 @@ function App() {
   }
 
   function beginProcessing(label: string, stage = "Starting", detail?: string) {
-    setProcessingCollapsed(false);
+    setProcessingCollapsed(uiMode === "beginner");
     setProcessing({
       isActive: true,
       currentStage: stage,
