@@ -1,0 +1,11 @@
+{
+  "mustShow": ["login screen", "dashboard", "scan results"],
+  "cutOut": ["desktop idle", "file explorer", "loading waits", "failed clicks"],
+  "style": "premium cyber",
+  "duration": 10,
+  "musicSync": true,
+  "lighting": {
+    "theme": "red_black",
+    "intensity": 0.45
+  }
+}

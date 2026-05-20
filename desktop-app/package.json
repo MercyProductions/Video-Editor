@@ -1,0 +1,86 @@
+{
+  "name": "automatic-video-editor-desktop",
+  "version": "0.9.0",
+  "description": "AI-assisted automatic video editor powered by JSON projects and FFmpeg.",
+  "author": "Aegis",
+  "private": true,
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "npm run build:electron && concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && cross-env ELECTRON_START_URL=http://127.0.0.1:5173 electron .\"",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "build": "npm run build:electron && vite build",
+    "dist": "npm run build && electron-builder --dir",
+    "build:installer": "npm run build && electron-builder",
+    "start": "npm run build && electron ."
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "lucide-react": "^0.468.0",
+    "monaco-editor": "^0.52.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3",
+    "electron": "^42.2.0",
+    "electron-builder": "^26.0.12",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.aegis.automatic-video-editor",
+    "productName": "Automatic Video Editor",
+    "directories": {
+      "output": "release"
+    },
+    "icon": "assets/icon.ico",
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "assets/**",
+      "splash.html",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../render.py",
+        "to": "engine/render.py"
+      },
+      {
+        "from": "../src",
+        "to": "engine/src"
+      },
+      {
+        "from": "../requirements.txt",
+        "to": "engine/requirements.txt"
+      },
+      {
+        "from": "../docs",
+        "to": "engine/docs"
+      },
+      {
+        "from": "../examples/project.json",
+        "to": "engine/examples/project.json"
+      },
+      {
+        "from": "../examples/demos",
+        "to": "engine/examples/demos"
+      },
+      {
+        "from": "../luts",
+        "to": "engine/luts"
+      }
+    ],
+    "win": {
+      "target": ["nsis", "zip"]
+    },
+    "publish": null
+  }
+}

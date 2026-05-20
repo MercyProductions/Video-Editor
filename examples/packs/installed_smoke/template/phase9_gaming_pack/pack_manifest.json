@@ -1,0 +1,15 @@
+{
+  "format": "automatic-video-editor-template-pack",
+  "version": 1,
+  "name": "phase9_gaming_pack",
+  "type": "template",
+  "author": "local",
+  "createdAt": "2026-05-20T00:29:07Z",
+  "sourceName": "gaming_montage.json",
+  "entries": [
+    {
+      "path": "gaming_montage.json",
+      "size": 4291
+    }
+  ]
+}

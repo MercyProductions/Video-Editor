@@ -1,0 +1,23 @@
+{
+  "name": "Sample Punch Zoom Transition",
+  "id": "sample_punch_zoom_transition",
+  "type": "transition",
+  "version": "0.1.0",
+  "description": "Example manifest for a custom transition plugin.",
+  "entry": "plugin.json",
+  "localOnly": true,
+  "enabled": true,
+  "permissions": [],
+  "sandbox": {
+    "mode": "manifest_only",
+    "crashIsolation": true
+  },
+  "capabilities": {
+    "transitions": [
+      {
+        "name": "punch_zoom",
+        "description": "Fast zoom-blend transition placeholder for future engine hooks."
+      }
+    ]
+  }
+}

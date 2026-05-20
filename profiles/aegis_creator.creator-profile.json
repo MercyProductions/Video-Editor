@@ -1,0 +1,55 @@
+{
+  "name": "Aegis Creator",
+  "introStyle": "short_title_card",
+  "captionStyle": {
+    "fontSize": 58,
+    "color": "#ffffff",
+    "strokeColor": "#000000",
+    "strokeWidth": 4,
+    "box": true,
+    "boxColor": "#000000aa",
+    "boxPadding": 16
+  },
+  "preferredMusicBehavior": {
+    "volume": 0.42,
+    "fadeIn": 0.2,
+    "fadeOut": 1.0,
+    "loop": true
+  },
+  "transitionFrequency": "scene",
+  "exportSettings": {
+    "preset": "shorts",
+    "quality": "preview"
+  },
+  "timelineBehavior": {
+    "snapSeconds": 0.25,
+    "rippleEdits": true,
+    "zoomLevel": 1.0
+  },
+  "favoriteTransitions": [
+    "crossfade",
+    "zoom"
+  ],
+  "renderDefaults": {
+    "cache": true,
+    "resume": true,
+    "gpu": false
+  },
+  "branding": {
+    "logo": null,
+    "primaryColor": "#ef4444",
+    "secondaryColor": "#050000"
+  },
+  "ctaStyle": "save_and_try",
+  "preferredHooks": [
+    "problem_solution",
+    "curiosity"
+  ],
+  "preferredTransitions": [
+    "crossfade",
+    "zoom"
+  ],
+  "preferredCTAStyle": "save_and_try",
+  "pacingStyle": "medium_fast",
+  "outroStyle": "cta_card"
+}

@@ -1,0 +1,28 @@
+{
+  "name": "Sample Product Showcase Template",
+  "id": "sample_product_showcase_template",
+  "type": "template",
+  "version": "0.1.0",
+  "description": "Example local template plugin manifest.",
+  "entry": "plugin.json",
+  "localOnly": true,
+  "enabled": true,
+  "permissions": [],
+  "sandbox": {
+    "mode": "manifest_only",
+    "crashIsolation": true
+  },
+  "capabilities": {
+    "templates": [
+      {
+        "name": "sample_product_showcase",
+        "requiredAssets": {
+          "clip": "video",
+          "logo": "image",
+          "music": "audio"
+        },
+        "exportPreset": "youtube_1080p"
+      }
+    ]
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "format": "automatic-video-editor-template-pack",
+  "version": 1,
+  "template": {
+    "key": "gaming_montage",
+    "name": "Gaming Montage",
+    "exportPreset": "youtube_1080p",
+    "requiredAssets": {
+      "clip1": "video",
+      "clip2": "video",
+      "clip3": "video",
+      "music": "audio",
+      "impact": "audio"
+    },
+    "transitionStyle": "zoom",
+    "musicSlots": [
+      "music"
+    ],
+    "sfxSlots": [
+      "impact"
+    ],
+    "author": "Aegis",
+    "version": "1.0.0",
+    "tags": [
+      "gaming",
+      "fast",
+      "montage"
+    ],
+    "previewThumbnail": "marketplace/thumbnails/gaming_montage.png",
+    "installState": "bundled"
+  },
+  "projectFile": "template.json"
+}

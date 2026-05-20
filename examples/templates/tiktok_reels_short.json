@@ -1,0 +1,137 @@
+{
+  "project": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 60,
+    "duration": 12,
+    "background": "#050505"
+  },
+  "assets": {
+    "clip1": "assets/clip1.mp4",
+    "clip2": "assets/clip2.mp4",
+    "music": "assets/music.wav",
+    "pop": "assets/pop.wav"
+  },
+  "timeline": [
+    {
+      "id": "hook",
+      "start": 0,
+      "duration": 4,
+      "layers": [
+        {
+          "type": "video",
+          "asset": "clip1",
+          "x": 0,
+          "y": 0,
+          "width": 1080,
+          "height": 1920,
+          "contrast": 1.15
+        },
+        {
+          "type": "text",
+          "text": "Stop scrolling",
+          "x": "center",
+          "y": 180,
+          "fontSize": 72,
+          "color": "#ffffff",
+          "strokeColor": "#000000",
+          "strokeWidth": 2,
+          "box": true,
+          "boxColor": "#ff004499",
+          "animation": {
+            "in": "pulse",
+            "out": "fade",
+            "duration": 0.4
+          }
+        }
+      ],
+      "transitionOut": {
+        "type": "slide",
+        "duration": 0.35,
+        "direction": "left"
+      }
+    },
+    {
+      "id": "payoff",
+      "start": 4,
+      "duration": 8,
+      "layers": [
+        {
+          "type": "video",
+          "asset": "clip2",
+          "x": 0,
+          "y": 0,
+          "width": 1080,
+          "height": 1920
+        },
+        {
+          "type": "caption",
+          "x": "center",
+          "y": 1580,
+          "fontSize": 54,
+          "color": "#ffffff",
+          "strokeColor": "#000000",
+          "strokeWidth": 3,
+          "box": true,
+          "boxColor": "#00000099",
+          "boxPadding": 14,
+          "items": [
+            {
+              "text": "Here is the result",
+              "start": 0.3,
+              "duration": 2.5
+            },
+            {
+              "text": "Built automatically from JSON",
+              "start": 3.1,
+              "duration": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "audio": [
+    {
+      "asset": "music",
+      "start": 0,
+      "volume": 0.45,
+      "fadeIn": 0.2,
+      "fadeOut": 0.8
+    },
+    {
+      "asset": "pop",
+      "start": 0.2,
+      "duration": 0.5,
+      "volume": 0.45
+    },
+    {
+      "asset": "pop",
+      "start": 4,
+      "duration": 0.5,
+      "volume": 0.35
+    }
+  ],
+  "exportPreset": "tiktok_reels",
+  "metadata": {
+    "template": "tiktok_reels_short",
+    "templateName": "TikTok/Reels Short",
+    "requiredAssets": {
+      "clip1": "video",
+      "clip2": "video",
+      "music": "audio",
+      "pop": "audio"
+    },
+    "transitionStyle": "slide",
+    "musicSlots": [
+      "music"
+    ],
+    "sfxSlots": [
+      "pop"
+    ],
+    "placeholders": {
+      "hook": "Stop scrolling",
+      "payoff": "Here is the result"
+    }
+  }
+}

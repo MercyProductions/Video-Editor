@@ -1,0 +1,38 @@
+{
+  "metadata": { "demoName": "Product Promo", "phase11Demo": true },
+  "exportPreset": "youtube_1080p",
+  "stylePreset": "minimal_tech",
+  "project": { "width": 1280, "height": 720, "fps": 30, "duration": 13, "background": "#f8fafc" },
+  "assets": { "clip": "../assets/gameplay.mp4", "logo": "../assets/logo.png", "music": "../assets/song.wav" },
+  "timeline": [
+    {
+      "id": "problem",
+      "start": 0,
+      "duration": 3,
+      "layers": [
+        { "type": "text", "text": "Manual edits take too long.", "x": "center", "y": "center", "fontSize": 54, "color": "#0f172a", "box": true, "boxColor": "#ffffffdd", "boxPadding": 16 }
+      ],
+      "transitionOut": { "type": "crossfade", "duration": 0.4 }
+    },
+    {
+      "id": "showcase",
+      "start": 3,
+      "duration": 7,
+      "layers": [
+        { "type": "video", "asset": "clip", "x": 0, "y": 0, "width": 1280, "height": 720, "camera": { "mode": "smooth_pan", "zoom": 1.025, "panX": 18, "duration": 7 } },
+        { "type": "lower_third", "title": "Automatic Video Editor", "subtitle": "JSON source of truth. FFmpeg output.", "x": 64, "y": 520, "color": "#0f766e", "boxColor": "#ffffffdd" }
+      ],
+      "transitionOut": { "type": "crossfade", "duration": 0.45 }
+    },
+    {
+      "id": "cta",
+      "start": 10,
+      "duration": 3,
+      "layers": [
+        { "type": "image", "asset": "logo", "x": "center", "y": 150, "scale": 0.3 },
+        { "type": "text", "text": "Generate. Review. Render.", "x": "center", "y": 420, "fontSize": 50, "color": "#0f172a", "box": true, "boxColor": "#ffffffee", "boxPadding": 18 }
+      ]
+    }
+  ],
+  "audio": [{ "asset": "music", "start": 0, "volume": 0.32, "fadeIn": 0.5, "fadeOut": 1, "loop": true, "compressor": true, "limiter": true }]
+}

@@ -1,0 +1,113 @@
+{
+  "project": {
+    "width": 1080,
+    "height": 1080,
+    "fps": 30,
+    "duration": 9,
+    "background": "#000000"
+  },
+  "assets": {
+    "clip": "assets/clip.mp4",
+    "reaction": "assets/reaction.png",
+    "music": "assets/music.wav",
+    "hit": "assets/hit.wav"
+  },
+  "timeline": [
+    {
+      "id": "setup",
+      "start": 0,
+      "duration": 5,
+      "layers": [
+        {
+          "type": "video",
+          "asset": "clip",
+          "x": 0,
+          "y": 0,
+          "width": 1080,
+          "height": 1080
+        },
+        {
+          "type": "text",
+          "text": "WHEN THE JSON RENDERS",
+          "x": "center",
+          "y": 70,
+          "fontSize": 52,
+          "color": "#ffffff",
+          "strokeColor": "#000000",
+          "strokeWidth": 4
+        }
+      ],
+      "transitionOut": {
+        "type": "cut",
+        "duration": 0
+      }
+    },
+    {
+      "id": "punchline",
+      "start": 5,
+      "duration": 4,
+      "layers": [
+        {
+          "type": "image",
+          "asset": "reaction",
+          "x": "center",
+          "y": "center",
+          "scale": 1.15,
+          "effects": [
+            "shake"
+          ]
+        },
+        {
+          "type": "text",
+          "text": "FIRST TRY",
+          "x": "center",
+          "y": 890,
+          "fontSize": 60,
+          "color": "#ffffff",
+          "strokeColor": "#000000",
+          "strokeWidth": 5,
+          "animation": {
+            "in": "pulse",
+            "duration": 0.2
+          }
+        }
+      ]
+    }
+  ],
+  "audio": [
+    {
+      "asset": "music",
+      "start": 0,
+      "volume": 0.32,
+      "fadeOut": 0.8
+    },
+    {
+      "asset": "hit",
+      "start": 5,
+      "duration": 0.5,
+      "volume": 0.65
+    }
+  ],
+  "exportPreset": "square",
+  "metadata": {
+    "template": "meme_edit",
+    "templateName": "Meme Edit",
+    "requiredAssets": {
+      "clip": "video",
+      "reaction": "image",
+      "music": "audio",
+      "hit": "audio"
+    },
+    "transitionStyle": "cut",
+    "musicSlots": [
+      "music"
+    ],
+    "sfxSlots": [
+      "hit"
+    ],
+    "placeholders": {
+      "topText": "WHEN THE JSON RENDERS",
+      "bottomText": "FIRST TRY"
+    }
+  }
+}

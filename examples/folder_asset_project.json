@@ -1,0 +1,68 @@
+{
+  "metadata": {
+    "example": "Asset folder resolution. The image, video, and audio assets all point at the same folder; the resolver picks the first matching file type."
+  },
+  "exportPreset": "discord_720p",
+  "project": {
+    "width": 1280,
+    "height": 720,
+    "fps": 30,
+    "duration": 5,
+    "background": "#05070d"
+  },
+  "assets": {
+    "media_folder_video": "assets",
+    "media_folder_image": "assets",
+    "media_folder_audio": "assets"
+  },
+  "timeline": [
+    {
+      "id": "folder_assets",
+      "start": 0,
+      "duration": 5,
+      "layers": [
+        {
+          "type": "video",
+          "asset": "media_folder_video",
+          "x": 0,
+          "y": 0,
+          "width": 1280,
+          "height": 720
+        },
+        {
+          "type": "image",
+          "asset": "media_folder_image",
+          "x": 60,
+          "y": 60,
+          "scale": 0.18,
+          "animation": {
+            "in": "fade",
+            "out": "fade",
+            "duration": 0.5
+          }
+        },
+        {
+          "type": "text",
+          "text": "Folder assets resolved automatically",
+          "x": "center",
+          "y": 610,
+          "fontSize": 36,
+          "color": "#ffffff",
+          "strokeColor": "#000000",
+          "strokeWidth": 2,
+          "box": true,
+          "boxColor": "#00000099",
+          "boxPadding": 12
+        }
+      ]
+    }
+  ],
+  "audio": [
+    {
+      "asset": "media_folder_audio",
+      "start": 0,
+      "volume": 0.25,
+      "fadeOut": 0.8
+    }
+  ]
+}

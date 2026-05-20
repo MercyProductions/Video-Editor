@@ -1,0 +1,162 @@
+{
+  "project": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 60,
+    "duration": 20,
+    "background": "#0f172a"
+  },
+  "assets": {
+    "screen": "assets/screen.mp4",
+    "music": "assets/music.wav",
+    "click": "assets/click.wav"
+  },
+  "timeline": [
+    {
+      "id": "title",
+      "start": 0,
+      "duration": 4,
+      "layers": [
+        {
+          "type": "text",
+          "text": "How to build an edit",
+          "x": "center",
+          "y": "center",
+          "fontSize": 76,
+          "color": "#ffffff",
+          "strokeColor": "#000000",
+          "strokeWidth": 2,
+          "box": true,
+          "boxColor": "#0f172acc",
+          "animation": {
+            "in": "typewriter",
+            "out": "fade",
+            "duration": 0.6
+          }
+        }
+      ],
+      "transitionOut": {
+        "type": "slide",
+        "direction": "left",
+        "duration": 0.5
+      }
+    },
+    {
+      "id": "walkthrough",
+      "start": 4,
+      "duration": 12,
+      "layers": [
+        {
+          "type": "video",
+          "asset": "screen",
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        },
+        {
+          "type": "caption",
+          "x": "center",
+          "y": 920,
+          "fontSize": 44,
+          "color": "#ffffff",
+          "strokeColor": "#000000",
+          "strokeWidth": 3,
+          "box": true,
+          "boxColor": "#00000099",
+          "boxPadding": 14,
+          "items": [
+            {
+              "text": "Step 1: choose a template",
+              "start": 0.5,
+              "duration": 3
+            },
+            {
+              "text": "Step 2: add your clips",
+              "start": 4.5,
+              "duration": 3
+            },
+            {
+              "text": "Step 3: render the MP4",
+              "start": 8.5,
+              "duration": 3
+            }
+          ]
+        }
+      ],
+      "transitionOut": {
+        "type": "crossfade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "outro",
+      "start": 16,
+      "duration": 4,
+      "layers": [
+        {
+          "type": "text",
+          "text": "Done.",
+          "x": "center",
+          "y": "center",
+          "fontSize": 88,
+          "color": "#ffffff",
+          "strokeColor": "#000000",
+          "strokeWidth": 2,
+          "animation": {
+            "in": "zoomIn",
+            "duration": 0.5
+          }
+        }
+      ]
+    }
+  ],
+  "audio": [
+    {
+      "asset": "music",
+      "start": 0,
+      "volume": 0.25,
+      "fadeIn": 0.5,
+      "fadeOut": 1
+    },
+    {
+      "asset": "click",
+      "start": 4.6,
+      "duration": 0.3,
+      "volume": 0.4
+    },
+    {
+      "asset": "click",
+      "start": 8.6,
+      "duration": 0.3,
+      "volume": 0.35
+    },
+    {
+      "asset": "click",
+      "start": 12.6,
+      "duration": 0.3,
+      "volume": 0.35
+    }
+  ],
+  "exportPreset": "youtube_1080p",
+  "metadata": {
+    "template": "tutorial_video",
+    "templateName": "Tutorial Video",
+    "requiredAssets": {
+      "screen": "video",
+      "music": "audio",
+      "click": "audio"
+    },
+    "transitionStyle": "slide",
+    "musicSlots": [
+      "music"
+    ],
+    "sfxSlots": [
+      "click"
+    ],
+    "placeholders": {
+      "title": "How to build an edit",
+      "step1": "Step 1: choose a template"
+    }
+  }
+}

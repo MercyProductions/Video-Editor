@@ -1,0 +1,70 @@
+{
+  "workflowVersion": 1,
+  "id": "cybersecurity_tool_demo",
+  "name": "Cybersecurity Tool Demo",
+  "createdAt": "2026-05-20T03:24:26Z",
+  "localOnly": true,
+  "profile": {
+    "name": "Aegis Creator",
+    "path": "C:\\Users\\gabri\\Desktop\\Aegis\\Tools\\Kioson\\automatic-video-editor\\profiles\\aegis_creator.creator-profile.json",
+    "captionStyle": {
+      "fontSize": 58,
+      "color": "#ffffff",
+      "strokeColor": "#000000",
+      "strokeWidth": 4,
+      "box": true,
+      "boxColor": "#000000aa",
+      "boxPadding": 16
+    },
+    "exportSettings": {
+      "preset": "shorts",
+      "quality": "preview"
+    },
+    "preferredTransitions": [
+      "crossfade",
+      "zoom"
+    ],
+    "preferredCTAStyle": "save_and_try"
+  },
+  "generationRules": {
+    "mode": "youtube_shorts",
+    "tone": "cinematic",
+    "style": "red_black_aegis",
+    "duration": 45,
+    "preferredHooks": [
+      "problem_solution",
+      "curiosity"
+    ],
+    "preferredTransitions": [
+      "crossfade",
+      "zoom"
+    ],
+    "preferredMusicBehavior": {
+      "volume": 0.42,
+      "fadeIn": 0.2,
+      "fadeOut": 1.0,
+      "loop": true
+    }
+  },
+  "pacing": "medium_fast",
+  "structure": [
+    "hook",
+    "risk",
+    "scan",
+    "result",
+    "cta"
+  ],
+  "effects": [
+    "red_black_lighting",
+    "focus_zoom",
+    "caption_emphasis"
+  ],
+  "exportPackage": {
+    "platforms": [
+      "youtube_shorts",
+      "tiktok",
+      "x_twitter"
+    ],
+    "thumbnailVariants": 3
+  }
+}

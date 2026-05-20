@@ -1,0 +1,203 @@
+{
+  "project": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 60,
+    "duration": 18,
+    "background": "#050000"
+  },
+  "assets": {
+    "clip1": "assets/clip1.mp4",
+    "clip2": "assets/clip2.mp4",
+    "clip3": "assets/clip3.mp4",
+    "music": "assets/music.wav",
+    "impact": "assets/impact.wav"
+  },
+  "timeline": [
+    {
+      "id": "open",
+      "start": 0,
+      "duration": 3,
+      "layers": [
+        {
+          "type": "text",
+          "text": "TOP PLAYS",
+          "x": "center",
+          "y": "center",
+          "fontSize": 96,
+          "color": "#ff2d2d",
+          "strokeColor": "#000000",
+          "strokeWidth": 2,
+          "effects": [
+            "shake"
+          ],
+          "animation": {
+            "in": "zoomIn",
+            "out": "fade",
+            "duration": 0.5
+          }
+        }
+      ],
+      "transitionOut": {
+        "type": "zoom",
+        "duration": 0.35
+      }
+    },
+    {
+      "id": "clip_1",
+      "start": 3,
+      "duration": 5,
+      "layers": [
+        {
+          "type": "video",
+          "asset": "clip1",
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080,
+          "contrast": 1.2
+        },
+        {
+          "type": "caption",
+          "x": "center",
+          "y": 930,
+          "fontSize": 44,
+          "color": "#ffffff",
+          "strokeColor": "#000000",
+          "strokeWidth": 3,
+          "box": true,
+          "boxColor": "#00000099",
+          "boxPadding": 14,
+          "items": [
+            {
+              "text": "Clutch moment",
+              "start": 1,
+              "duration": 2.5
+            }
+          ]
+        }
+      ],
+      "transitionOut": {
+        "type": "zoom",
+        "duration": 0.3
+      }
+    },
+    {
+      "id": "clip_2",
+      "start": 8,
+      "duration": 5,
+      "layers": [
+        {
+          "type": "video",
+          "asset": "clip2",
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080,
+          "speed": 1.08
+        },
+        {
+          "type": "text",
+          "text": "+250 XP",
+          "x": 80,
+          "y": 80,
+          "fontSize": 54,
+          "color": "#ff2d2d",
+          "strokeColor": "#000000",
+          "strokeWidth": 2,
+          "animation": {
+            "in": "slideRight",
+            "out": "fade",
+            "duration": 0.35
+          }
+        }
+      ],
+      "transitionOut": {
+        "type": "crossfade",
+        "duration": 0.4
+      }
+    },
+    {
+      "id": "clip_3",
+      "start": 13,
+      "duration": 5,
+      "layers": [
+        {
+          "type": "video",
+          "asset": "clip3",
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        },
+        {
+          "type": "text",
+          "text": "VICTORY",
+          "x": "center",
+          "y": 120,
+          "fontSize": 78,
+          "color": "#ffffff",
+          "strokeColor": "#000000",
+          "strokeWidth": 2,
+          "box": true,
+          "boxColor": "#9f123999",
+          "animation": {
+            "in": "pulse",
+            "out": "fade",
+            "duration": 0.45
+          }
+        }
+      ]
+    }
+  ],
+  "audio": [
+    {
+      "asset": "music",
+      "start": 0,
+      "volume": 0.48,
+      "fadeIn": 0.2,
+      "fadeOut": 1
+    },
+    {
+      "asset": "impact",
+      "start": 3,
+      "duration": 0.5,
+      "volume": 0.5
+    },
+    {
+      "asset": "impact",
+      "start": 8,
+      "duration": 0.5,
+      "volume": 0.45
+    },
+    {
+      "asset": "impact",
+      "start": 13,
+      "duration": 0.5,
+      "volume": 0.45
+    }
+  ],
+  "exportPreset": "youtube_1080p",
+  "metadata": {
+    "template": "gaming_montage",
+    "templateName": "Gaming Montage",
+    "requiredAssets": {
+      "clip1": "video",
+      "clip2": "video",
+      "clip3": "video",
+      "music": "audio",
+      "impact": "audio"
+    },
+    "transitionStyle": "zoom",
+    "musicSlots": [
+      "music"
+    ],
+    "sfxSlots": [
+      "impact"
+    ],
+    "placeholders": {
+      "title": "Top Plays",
+      "caption": "Clutch moment"
+    }
+  }
+}

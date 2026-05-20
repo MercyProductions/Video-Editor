@@ -1,0 +1,126 @@
+{
+  "project": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "duration": 15,
+    "background": "#111827"
+  },
+  "assets": {
+    "photo1": "assets/photo1.png",
+    "photo2": "assets/photo2.png",
+    "photo3": "assets/photo3.png",
+    "music": "assets/music.wav"
+  },
+  "timeline": [
+    {
+      "id": "photo_1",
+      "start": 0,
+      "duration": 5,
+      "layers": [
+        {
+          "type": "image",
+          "asset": "photo1",
+          "x": "center",
+          "y": "center",
+          "scale": 1.25,
+          "animation": {
+            "in": "zoomIn",
+            "out": "fade",
+            "duration": 0.7
+          }
+        },
+        {
+          "type": "text",
+          "text": "Memories",
+          "x": "center",
+          "y": 820,
+          "fontSize": 64,
+          "color": "#ffffff",
+          "strokeColor": "#000000",
+          "strokeWidth": 2
+        }
+      ],
+      "transitionOut": {
+        "type": "crossfade",
+        "duration": 0.8
+      }
+    },
+    {
+      "id": "photo_2",
+      "start": 5,
+      "duration": 5,
+      "layers": [
+        {
+          "type": "image",
+          "asset": "photo2",
+          "x": "center",
+          "y": "center",
+          "scale": 1.25,
+          "animation": {
+            "in": "zoomOut",
+            "out": "fade",
+            "duration": 0.7
+          }
+        }
+      ],
+      "transitionOut": {
+        "type": "crossfade",
+        "duration": 0.8
+      }
+    },
+    {
+      "id": "photo_3",
+      "start": 10,
+      "duration": 5,
+      "layers": [
+        {
+          "type": "image",
+          "asset": "photo3",
+          "x": "center",
+          "y": "center",
+          "scale": 1.25
+        },
+        {
+          "type": "text",
+          "text": "A simple slideshow",
+          "x": "center",
+          "y": 850,
+          "fontSize": 52,
+          "color": "#ffffff",
+          "strokeColor": "#000000",
+          "strokeWidth": 2
+        }
+      ]
+    }
+  ],
+  "audio": [
+    {
+      "asset": "music",
+      "start": 0,
+      "volume": 0.35,
+      "fadeIn": 0.8,
+      "fadeOut": 1.2
+    }
+  ],
+  "exportPreset": "youtube_1080p",
+  "metadata": {
+    "template": "slideshow",
+    "templateName": "Slideshow",
+    "requiredAssets": {
+      "photo1": "image",
+      "photo2": "image",
+      "photo3": "image",
+      "music": "audio"
+    },
+    "transitionStyle": "crossfade",
+    "musicSlots": [
+      "music"
+    ],
+    "sfxSlots": [],
+    "placeholders": {
+      "title": "Memories",
+      "caption": "A simple slideshow"
+    }
+  }
+}

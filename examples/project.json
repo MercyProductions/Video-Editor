@@ -1,0 +1,132 @@
+{
+  "project": {
+    "width": 1280,
+    "height": 720,
+    "fps": 30,
+    "duration": 10,
+    "background": "#05070d"
+  },
+  "assets": {
+    "logo": "assets/logo.png",
+    "clip1": "assets/gameplay.mp4",
+    "music": "assets/song.wav"
+  },
+  "timeline": [
+    {
+      "id": "intro",
+      "start": 0,
+      "duration": 3,
+      "layers": [
+        {
+          "type": "image",
+          "asset": "logo",
+          "x": "center",
+          "y": "center",
+          "scale": 0.45,
+          "animation": {
+            "in": "zoomIn",
+            "out": "fade",
+            "duration": 0.7
+          }
+        },
+        {
+          "type": "text",
+          "text": "Automatic Edit",
+          "x": "center",
+          "y": 560,
+          "fontSize": 56,
+          "color": "#ffffff",
+          "strokeColor": "#000000",
+          "strokeWidth": 3,
+          "shadowColor": "#000000",
+          "shadowX": 4,
+          "shadowY": 4,
+          "animation": {
+            "in": "typewriter",
+            "out": "fade",
+            "duration": 0.7
+          }
+        }
+      ],
+      "transitionOut": {
+        "type": "crossfade",
+        "duration": 0.75
+      }
+    },
+    {
+      "id": "main_clip",
+      "start": 3,
+      "duration": 7,
+      "layers": [
+        {
+          "type": "video",
+          "asset": "clip1",
+          "x": 0,
+          "y": 0,
+          "width": 1280,
+          "height": 720,
+          "trimStart": 0,
+          "trimEnd": 7,
+          "brightness": 0.02,
+          "contrast": 1.1
+        },
+        {
+          "type": "text",
+          "text": "JSON -> FFmpeg -> MP4",
+          "x": 64,
+          "y": 64,
+          "fontSize": 42,
+          "color": "#f8fafc",
+          "strokeColor": "#020617",
+          "strokeWidth": 2,
+          "box": true,
+          "boxColor": "#0f172acc",
+          "boxPadding": 18,
+          "animation": {
+            "in": "slideRight",
+            "out": "fade",
+            "duration": 0.6
+          }
+        },
+        {
+          "type": "caption",
+          "x": "center",
+          "y": 620,
+          "fontSize": 34,
+          "color": "#ffffff",
+          "strokeColor": "#000000",
+          "strokeWidth": 2,
+          "box": true,
+          "boxColor": "#00000099",
+          "boxPadding": 12,
+          "items": [
+            {
+              "text": "A timeline made from JSON.",
+              "start": 1,
+              "duration": 2.2
+            },
+            {
+              "text": "Ready for templates, captions, and AI generation.",
+              "start": 3.8,
+              "duration": 2.6
+            }
+          ]
+        }
+      ],
+      "transitionOut": {
+        "type": "fadeToBlack",
+        "duration": 0.5
+      }
+    }
+  ],
+  "audio": [
+    {
+      "asset": "music",
+      "start": 0,
+      "volume": 0.35,
+      "fadeIn": 0.5,
+      "fadeOut": 1,
+      "loop": true
+    }
+  ]
+}

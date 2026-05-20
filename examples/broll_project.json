@@ -1,0 +1,72 @@
+{
+  "metadata": {
+    "template": "phase_5_broll_example"
+  },
+  "exportPreset": "youtube_1080p",
+  "project": {
+    "width": 1280,
+    "height": 720,
+    "fps": 30,
+    "duration": 6,
+    "background": "#080808"
+  },
+  "assets": {
+    "gameplay": "assets/gameplay.mp4",
+    "logo": "assets/logo.png",
+    "music": "assets/song.wav"
+  },
+  "timeline": [
+    {
+      "id": "hook",
+      "start": 0,
+      "duration": 3,
+      "layers": [
+        {
+          "type": "broll",
+          "query": "gameplay action",
+          "layout": "center"
+        },
+        {
+          "type": "text",
+          "text": "B-roll picked automatically",
+          "layout": "lower_third",
+          "fontSize": 48,
+          "color": "#ffffff",
+          "strokeColor": "#000000",
+          "strokeWidth": 3
+        }
+      ],
+      "transitionOut": {
+        "type": "crossfade",
+        "duration": 0.4
+      }
+    },
+    {
+      "id": "logo_hit",
+      "start": 3,
+      "duration": 3,
+      "layers": [
+        {
+          "type": "image",
+          "asset": "logo",
+          "layout": "center",
+          "scale": 0.45,
+          "animation": {
+            "in": "zoomIn",
+            "out": "fade",
+            "duration": 0.5
+          }
+        }
+      ]
+    }
+  ],
+  "audio": [
+    {
+      "asset": "music",
+      "start": 0,
+      "volume": 0.35,
+      "fadeIn": 0.5,
+      "fadeOut": 1
+    }
+  ]
+}

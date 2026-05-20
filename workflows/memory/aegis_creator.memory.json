@@ -1,0 +1,53 @@
+{
+  "memoryVersion": 1,
+  "profile": "Aegis Creator",
+  "events": [
+    {
+      "timestamp": "2026-05-20T03:17:01Z",
+      "rating": "reuse",
+      "note": "Good cybersecurity pacing",
+      "project": "C:\\Users\\gabri\\Desktop\\Aegis\\Tools\\Kioson\\automatic-video-editor\\examples\\generated\\phase16_workflow_batch\\v01_serious_cinematic\\project.json",
+      "style": "red_black_aegis",
+      "transitions": [
+        "fadeToBlack",
+        "zoom",
+        "fadeToBlack",
+        "fadeToBlack",
+        "fadeToBlack",
+        "fadeToBlack",
+        "fadeToBlack"
+      ],
+      "captionDensity": 2.0,
+      "contentPlan": "C:\\Users\\gabri\\Desktop\\Aegis\\Tools\\Kioson\\automatic-video-editor\\examples\\generated\\phase16_workflow_batch\\v01_serious_cinematic\\content_plan.json",
+      "hook": "Stop guessing why apps will not launch.",
+      "mode": "youtube_shorts",
+      "tone": "cinematic"
+    }
+  ],
+  "preferences": {
+    "motionIntensity": "medium_fast"
+  },
+  "learnedAt": [
+    {
+      "key": "preferredStyle",
+      "value": "red_black_aegis",
+      "confidence": 0.55
+    },
+    {
+      "key": "preferredHook",
+      "value": "Stop guessing why apps will not launch.",
+      "confidence": 0.48000000000000004
+    },
+    {
+      "key": "preferredTransition",
+      "value": "fadeToBlack",
+      "confidence": 0.88
+    },
+    {
+      "key": "motionIntensity",
+      "value": "medium_fast",
+      "confidence": 1.0,
+      "source": "manual"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "ran": 1,
+  "tasks": [
+    {
+      "taskVersion": 1,
+      "id": "nightly_cache_cleanup_21e4577a",
+      "name": "Nightly cache cleanup",
+      "type": "cache_cleanup",
+      "runAt": "now",
+      "priority": 3,
+      "enabled": true,
+      "localOnly": true,
+      "command": [
+        "cache",
+        "cleanup",
+        "--max-gb",
+        "4",
+        "--dry-run"
+      ],
+      "status": "completed",
+      "createdAt": "2026-05-20T03:19:32Z",
+      "lastRunAt": "2026-05-20T03:19:38Z",
+      "lastResult": {
+        "returnCode": 0,
+        "seconds": 0.228,
+        "output": "Cache cleanup: deleted=0 bytes=0 dryRun=True\n"
+      },
+      "path": "C:\\Users\\gabri\\Desktop\\Aegis\\Tools\\Kioson\\automatic-video-editor\\workflows\\tasks\\nightly_cache_cleanup_21e4577a.task.json"
+    }
+  ]
+}

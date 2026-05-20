@@ -1,0 +1,26 @@
+{
+  "name": "Sample Cinematic Glow Effect",
+  "id": "sample_cinematic_glow_effect",
+  "type": "effect",
+  "version": "0.1.0",
+  "description": "Example local effect manifest for a reusable glow/color polish preset.",
+  "entry": "plugin.json",
+  "localOnly": true,
+  "enabled": true,
+  "permissions": [],
+  "sandbox": {
+    "mode": "manifest_only",
+    "crashIsolation": true
+  },
+  "capabilities": {
+    "effects": [
+      {
+        "name": "cinematic_glow",
+        "nodes": [
+          { "type": "glow", "amount": 0.2 },
+          { "type": "vignette", "intensity": 0.28 }
+        ]
+      }
+    ]
+  }
+}

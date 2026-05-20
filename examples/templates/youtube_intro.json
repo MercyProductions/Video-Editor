@@ -1,0 +1,127 @@
+{
+  "project": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 60,
+    "duration": 8,
+    "background": "#05070d"
+  },
+  "assets": {
+    "logo": "assets/logo.png",
+    "intro_bg": "assets/intro_bg.mp4",
+    "music": "assets/music.wav",
+    "whoosh": "assets/whoosh.wav"
+  },
+  "timeline": [
+    {
+      "id": "brand_reveal",
+      "start": 0,
+      "duration": 4,
+      "layers": [
+        {
+          "type": "video",
+          "asset": "intro_bg",
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080,
+          "opacity": 0.55,
+          "blur": 2
+        },
+        {
+          "type": "image",
+          "asset": "logo",
+          "x": "center",
+          "y": "center",
+          "scale": 0.42,
+          "animation": {
+            "in": "zoomIn",
+            "out": "fade",
+            "duration": 0.7
+          }
+        },
+        {
+          "type": "text",
+          "text": "Welcome Back",
+          "x": "center",
+          "y": 820,
+          "fontSize": 72,
+          "color": "#ffffff",
+          "strokeColor": "#000000",
+          "strokeWidth": 2,
+          "animation": {
+            "in": "slideUp",
+            "out": "fade",
+            "duration": 0.6
+          }
+        }
+      ],
+      "transitionOut": {
+        "type": "crossfade",
+        "duration": 0.7
+      }
+    },
+    {
+      "id": "title_card",
+      "start": 4,
+      "duration": 4,
+      "layers": [
+        {
+          "type": "text",
+          "text": "New video starts now",
+          "x": "center",
+          "y": "center",
+          "fontSize": 78,
+          "color": "#ffffff",
+          "strokeColor": "#000000",
+          "strokeWidth": 2,
+          "box": true,
+          "boxColor": "#00000099",
+          "boxPadding": 22,
+          "animation": {
+            "in": "typewriter",
+            "out": "fade",
+            "duration": 0.6
+          }
+        }
+      ]
+    }
+  ],
+  "audio": [
+    {
+      "asset": "music",
+      "start": 0,
+      "volume": 0.35,
+      "fadeIn": 0.5,
+      "fadeOut": 1
+    },
+    {
+      "asset": "whoosh",
+      "start": 0.3,
+      "duration": 1,
+      "volume": 0.35
+    }
+  ],
+  "exportPreset": "youtube_1080p",
+  "metadata": {
+    "template": "youtube_intro",
+    "templateName": "YouTube Intro",
+    "requiredAssets": {
+      "logo": "image",
+      "intro_bg": "video",
+      "music": "audio",
+      "whoosh": "audio"
+    },
+    "transitionStyle": "crossfade",
+    "musicSlots": [
+      "music"
+    ],
+    "sfxSlots": [
+      "whoosh"
+    ],
+    "placeholders": {
+      "title": "Welcome Back",
+      "subtitle": "New video starts now"
+    }
+  }
+}

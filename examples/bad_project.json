@@ -1,0 +1,27 @@
+{
+  "title": "Broken project that repair can fix",
+  "project": {
+    "duration": "6"
+  },
+  "timeline": [
+    {
+      "layers": [
+        {
+          "type": "image"
+        },
+        {
+          "type": "text"
+        }
+      ],
+      "transitionOut": {
+        "type": "warp",
+        "duration": "0.5"
+      }
+    }
+  ],
+  "audio": [
+    {
+      "volume": "0.3"
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "metadata": { "demoName": "TikTok Edit", "phase11Demo": true },
+  "exportPreset": "shorts",
+  "stylePreset": "red_black_aegis",
+  "project": { "width": 1080, "height": 1920, "fps": 30, "duration": 15, "background": "#050000" },
+  "assets": { "clip": "../assets/gameplay.mp4", "music": "../assets/beat_music.wav", "logo": "../assets/logo.png" },
+  "timeline": [
+    {
+      "id": "hook",
+      "start": 0,
+      "duration": 3,
+      "layers": [
+        { "type": "video", "asset": "clip", "x": 0, "y": 0, "width": 1080, "height": 1920, "camera": { "mode": "dynamic_zoom", "zoom": 1.06, "duration": 3 } },
+        { "type": "text", "text": "STOP LOSING TIME", "x": "center", "y": 360, "fontSize": 74, "color": "#ef4444", "strokeColor": "#000000", "strokeWidth": 5, "box": true, "boxColor": "#000000bb", "boxPadding": 18 }
+      ],
+      "transitionOut": { "type": "zoom", "duration": 0.22 }
+    },
+    {
+      "id": "body",
+      "start": 3,
+      "duration": 8,
+      "layers": [
+        { "type": "video", "asset": "clip", "x": 0, "y": 0, "width": 1080, "height": 1920, "trimStart": 1, "trimEnd": 9, "camera": { "mode": "parallax", "intensity": 0.18, "zoom": 1.04 } },
+        { "type": "caption", "x": "center", "y": 1450, "fontSize": 68, "items": [{ "text": "Scan launch blockers.", "start": 0.2, "duration": 1.4 }, { "text": "Fix runtime problems.", "start": 2.2, "duration": 1.5 }, { "text": "Catch security conflicts.", "start": 4.3, "duration": 1.7 }] }
+      ],
+      "transitionOut": { "type": "fadeToBlack", "duration": 0.25 }
+    },
+    {
+      "id": "cta",
+      "start": 11,
+      "duration": 4,
+      "layers": [
+        { "type": "image", "asset": "logo", "x": "center", "y": 560, "scale": 0.55 },
+        { "type": "text", "text": "TRY THE LOCAL TROUBLESHOOTER", "x": "center", "y": 1100, "fontSize": 58, "color": "#ffffff", "strokeColor": "#000000", "strokeWidth": 4, "box": true, "boxColor": "#7f1d1dcc", "boxPadding": 18 }
+      ]
+    }
+  ],
+  "audio": [{ "asset": "music", "start": 0, "volume": 0.38, "fadeIn": 0.2, "fadeOut": 0.8, "loop": true, "compressor": true, "limiter": true }]
+}

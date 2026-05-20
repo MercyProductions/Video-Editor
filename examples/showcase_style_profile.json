@@ -1,0 +1,9 @@
+{
+  "style": "premium_tech",
+  "lighting": "soft_red_glow",
+  "cameraMovement": "smooth",
+  "pace": "medium_fast",
+  "transitionIntensity": 0.6,
+  "zoomAggressiveness": 0.35,
+  "cinematicIntensity": 0.58
+}

@@ -1,0 +1,56 @@
+{
+  "metadata": {
+    "demoName": "Gaming Montage",
+    "phase11Demo": true,
+    "notes": "Fast pacing, punchy captions, camera movement, and cache-friendly sample assets."
+  },
+  "exportPreset": "youtube_1080p",
+  "stylePreset": "gaming_montage",
+  "project": {
+    "width": 1280,
+    "height": 720,
+    "fps": 30,
+    "duration": 12,
+    "background": "#050000"
+  },
+  "assets": {
+    "clip": "../assets/gameplay.mp4",
+    "music": "../assets/beat_music.wav",
+    "logo": "../assets/logo.png"
+  },
+  "timeline": [
+    {
+      "id": "hook",
+      "start": 0,
+      "duration": 2,
+      "layers": [
+        { "type": "image", "asset": "logo", "x": "center", "y": 120, "scale": 0.28, "animation": { "in": "zoomIn", "out": "fade", "duration": 0.35 } },
+        { "type": "text", "text": "TOP PLAY", "x": "center", "y": "center", "fontSize": 84, "color": "#ef4444", "strokeColor": "#000000", "strokeWidth": 4, "effects": ["shake"], "animation": { "in": "zoomIn", "out": "fade", "duration": 0.3 } }
+      ],
+      "transitionOut": { "type": "zoom", "duration": 0.22 }
+    },
+    {
+      "id": "impact",
+      "start": 2,
+      "duration": 4,
+      "layers": [
+        { "type": "video", "asset": "clip", "x": 0, "y": 0, "width": 1280, "height": 720, "trimStart": 0, "trimEnd": 4, "camera": { "mode": "handheld", "intensity": 0.26, "zoom": 1.045 } },
+        { "type": "caption", "x": "center", "y": 604, "items": [{ "text": "Clean movement. Fast reaction.", "start": 0.4, "duration": 1.7 }, { "text": "The whole clip snaps into rhythm.", "start": 2.1, "duration": 1.6 }] }
+      ],
+      "transitionOut": { "type": "zoom", "duration": 0.2 }
+    },
+    {
+      "id": "payoff",
+      "start": 6,
+      "duration": 6,
+      "layers": [
+        { "type": "video", "asset": "clip", "x": 0, "y": 0, "width": 1280, "height": 720, "trimStart": 1, "trimEnd": 7, "contrast": 1.16, "camera": { "mode": "dynamic_zoom", "intensity": 0.18, "zoom": 1.055, "duration": 6 } },
+        { "type": "text", "text": "VICTORY MOMENT", "x": "center", "y": 84, "fontSize": 52, "color": "#ffffff", "strokeColor": "#000000", "strokeWidth": 3, "box": true, "boxColor": "#7f1d1dcc", "boxPadding": 14 },
+        { "type": "progress", "x": 100, "y": 672, "width": 1080, "height": 8, "color": "#ef4444", "backgroundColor": "#00000099" }
+      ]
+    }
+  ],
+  "audio": [
+    { "asset": "music", "start": 0, "volume": 0.42, "fadeIn": 0.15, "fadeOut": 1, "loop": true, "compressor": true, "limiter": true }
+  ]
+}

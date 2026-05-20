@@ -1,0 +1,40 @@
+{
+  "metadata": { "demoName": "Cinematic Trailer", "phase11Demo": true },
+  "exportPreset": "youtube_1080p",
+  "stylePreset": "clean_cinematic",
+  "project": { "width": 1280, "height": 720, "fps": 30, "duration": 14, "background": "#05070d" },
+  "assets": { "clip": "../assets/gameplay.mp4", "logo": "../assets/logo.png", "music": "../assets/song.wav" },
+  "timeline": [
+    {
+      "id": "quiet_open",
+      "start": 0,
+      "duration": 3,
+      "layers": [
+        { "type": "animated_background", "color": "#6db5a5", "opacity": 0.08, "speed": 60 },
+        { "type": "image", "asset": "logo", "x": "center", "y": "center", "scale": 0.4, "animation": { "in": "fade", "out": "fade", "duration": 0.8 } },
+        { "type": "text", "text": "A NEW WORKFLOW", "x": "center", "y": 560, "fontSize": 42, "color": "#f8fafc", "strokeColor": "#000000", "strokeWidth": 2 }
+      ],
+      "transitionOut": { "type": "crossfade", "duration": 0.55 }
+    },
+    {
+      "id": "reveal",
+      "start": 3,
+      "duration": 6,
+      "layers": [
+        { "type": "video", "asset": "clip", "x": 0, "y": 0, "width": 1280, "height": 720, "camera": { "mode": "smooth_pan", "zoom": 1.035, "panX": 24, "panY": -10, "duration": 6 }, "contrast": 1.08 },
+        { "type": "lower_third", "title": "Automatic Video Editor", "subtitle": "Local-first cinematic rendering", "x": 72, "y": 500, "color": "#6db5a5", "boxColor": "#000000aa" }
+      ],
+      "transitionOut": { "type": "fadeToBlack", "duration": 0.45 }
+    },
+    {
+      "id": "final_card",
+      "start": 9,
+      "duration": 5,
+      "layers": [
+        { "type": "text", "text": "CREATE. PREVIEW. EXPORT.", "x": "center", "y": "center", "fontSize": 58, "color": "#ffffff", "strokeColor": "#000000", "strokeWidth": 2, "box": true, "boxColor": "#0f172acc", "boxPadding": 18 },
+        { "type": "progress", "x": 100, "y": 650, "width": 1080, "height": 6, "color": "#6db5a5", "backgroundColor": "#00000099" }
+      ]
+    }
+  ],
+  "audio": [{ "asset": "music", "start": 0, "volume": 0.34, "fadeIn": 1, "fadeOut": 1.2, "loop": true, "compressor": true, "limiter": true }]
+}

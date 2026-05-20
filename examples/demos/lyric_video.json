@@ -1,0 +1,30 @@
+{
+  "metadata": { "demoName": "Lyric Video", "phase11Demo": true },
+  "exportPreset": "youtube_1080p",
+  "stylePreset": "vaporwave",
+  "project": { "width": 1280, "height": 720, "fps": 30, "duration": 12, "background": "#17002e" },
+  "assets": { "music": "../assets/song.wav", "logo": "../assets/logo.png" },
+  "timeline": [
+    {
+      "id": "verse",
+      "start": 0,
+      "duration": 6,
+      "layers": [
+        { "type": "animated_background", "color": "#67e8f9", "opacity": 0.12, "speed": 80 },
+        { "type": "caption", "x": "center", "y": 500, "fontSize": 58, "color": "#facc15", "strokeColor": "#000000", "strokeWidth": 4, "items": [{ "text": "Build it from a simple idea", "start": 0.6, "duration": 2.2 }, { "text": "Watch the timeline come alive", "start": 3.2, "duration": 2.1 }] }
+      ],
+      "transitionOut": { "type": "crossfade", "duration": 0.5 }
+    },
+    {
+      "id": "chorus",
+      "start": 6,
+      "duration": 6,
+      "layers": [
+        { "type": "animated_background", "color": "#f472b6", "opacity": 0.1, "speed": 120 },
+        { "type": "image", "asset": "logo", "x": "center", "y": 140, "scale": 0.25 },
+        { "type": "text", "text": "LOCAL. CINEMATIC. YOURS.", "x": "center", "y": "center", "fontSize": 56, "color": "#67e8f9", "strokeColor": "#f472b6", "strokeWidth": 2, "box": true, "boxColor": "#00000099", "boxPadding": 18 }
+      ]
+    }
+  ],
+  "audio": [{ "asset": "music", "start": 0, "volume": 0.44, "fadeIn": 0.4, "fadeOut": 1, "loop": true, "limiter": true }]
+}

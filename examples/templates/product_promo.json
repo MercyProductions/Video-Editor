@@ -1,0 +1,137 @@
+{
+  "project": {
+    "width": 1080,
+    "height": 1080,
+    "fps": 30,
+    "duration": 14,
+    "background": "#f8fafc"
+  },
+  "assets": {
+    "product": "assets/product.png",
+    "broll": "assets/broll.mp4",
+    "music": "assets/music.wav"
+  },
+  "timeline": [
+    {
+      "id": "hero",
+      "start": 0,
+      "duration": 5,
+      "layers": [
+        {
+          "type": "image",
+          "asset": "product",
+          "x": "center",
+          "y": "center",
+          "scale": 0.72,
+          "animation": {
+            "in": "zoomIn",
+            "out": "fade",
+            "duration": 0.6
+          }
+        },
+        {
+          "type": "text",
+          "text": "Aegis Pro",
+          "x": "center",
+          "y": 820,
+          "fontSize": 70,
+          "color": "#0f172a",
+          "strokeColor": "#000000",
+          "strokeWidth": 2
+        }
+      ],
+      "transitionOut": {
+        "type": "crossfade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "benefits",
+      "start": 5,
+      "duration": 5,
+      "layers": [
+        {
+          "type": "video",
+          "asset": "broll",
+          "x": 0,
+          "y": 0,
+          "width": 1080,
+          "height": 1080,
+          "opacity": 0.75
+        },
+        {
+          "type": "text",
+          "text": "Built for speed",
+          "x": "center",
+          "y": "center",
+          "fontSize": 66,
+          "color": "#ffffff",
+          "strokeColor": "#000000",
+          "strokeWidth": 2,
+          "box": true,
+          "boxColor": "#0f172acc",
+          "boxPadding": 20
+        }
+      ],
+      "transitionOut": {
+        "type": "fadeToBlack",
+        "duration": 0.5
+      }
+    },
+    {
+      "id": "cta",
+      "start": 10,
+      "duration": 4,
+      "layers": [
+        {
+          "type": "text",
+          "text": "Launch-ready today",
+          "x": "center",
+          "y": "center",
+          "fontSize": 68,
+          "color": "#0f172a",
+          "strokeColor": "#000000",
+          "strokeWidth": 2
+        },
+        {
+          "type": "text",
+          "text": "Try it now",
+          "x": "center",
+          "y": 690,
+          "fontSize": 42,
+          "color": "#2563eb",
+          "strokeColor": "#000000",
+          "strokeWidth": 2
+        }
+      ]
+    }
+  ],
+  "audio": [
+    {
+      "asset": "music",
+      "start": 0,
+      "volume": 0.35,
+      "fadeIn": 0.4,
+      "fadeOut": 1
+    }
+  ],
+  "exportPreset": "square",
+  "metadata": {
+    "template": "product_promo",
+    "templateName": "Product Promo",
+    "requiredAssets": {
+      "product": "image",
+      "broll": "video",
+      "music": "audio"
+    },
+    "transitionStyle": "fadeToBlack",
+    "musicSlots": [
+      "music"
+    ],
+    "sfxSlots": [],
+    "placeholders": {
+      "productName": "Aegis Pro",
+      "tagline": "Built for speed"
+    }
+  }
+}

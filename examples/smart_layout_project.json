@@ -1,0 +1,60 @@
+{
+  "metadata": {
+    "example": "Smart layout zones: split screen, picture-in-picture, lower third, and safe zones."
+  },
+  "exportPreset": "youtube_1080p",
+  "project": {
+    "width": 1280,
+    "height": 720,
+    "fps": 30,
+    "duration": 6,
+    "background": "#05070d"
+  },
+  "assets": {
+    "clip": "assets/gameplay.mp4",
+    "logo": "assets/logo.png",
+    "music": "assets/song.wav"
+  },
+  "timeline": [
+    {
+      "id": "smart_layout",
+      "start": 0,
+      "duration": 6,
+      "layers": [
+        {
+          "type": "video",
+          "asset": "clip",
+          "layout": "split_left",
+          "autoFit": "cover"
+        },
+        {
+          "type": "image",
+          "asset": "logo",
+          "layout": "pip",
+          "animation": {
+            "in": "zoomIn",
+            "out": "fade",
+            "duration": 0.5
+          }
+        },
+        {
+          "type": "text",
+          "text": "Smart Layout",
+          "layout": "lower_third",
+          "fontSize": 46,
+          "color": "#ffffff",
+          "strokeColor": "#000000",
+          "strokeWidth": 2
+        }
+      ]
+    }
+  ],
+  "audio": [
+    {
+      "asset": "music",
+      "start": 0,
+      "volume": 0.25,
+      "fadeOut": 0.8
+    }
+  ]
+}
