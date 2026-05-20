@@ -31,6 +31,18 @@ from transitions.transitions import transition_duration, transition_type
 from reports.render_report import build_render_report
 
 
+def _default_output_path(project: ProjectConfig) -> Path:
+    output_dir = Path.home() / "Videos" / "Automatic Video Editor" / "renders"
+    project_name = _safe_stem(project.path.stem or "automatic-video")
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    return output_dir / f"{project_name}-final-{stamp}.mp4"
+
+
+def _safe_stem(value: str) -> str:
+    clean = "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-")
+    return clean[:60] or "automatic-video"
+
+
 class VideoRenderer:
     def __init__(
         self,
@@ -45,8 +57,7 @@ class VideoRenderer:
         gpu: bool = False,
     ):
         self.project = project
-        app_root = Path(__file__).resolve().parents[2]
-        self.output_path = output_path or (app_root / "output" / "final_video.mp4")
+        self.output_path = output_path or _default_output_path(project)
         self.keep_temp = keep_temp
         self.quality = quality
         self.use_cache = use_cache

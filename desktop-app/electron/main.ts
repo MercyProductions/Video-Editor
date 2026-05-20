@@ -218,8 +218,15 @@ const sessionStatePath = path.join(userDataDir, "session-state.json");
 const frictionLogPath = path.join(userDataDir, "friction-events.jsonl");
 const adaptiveMemoryPath = path.join(userDataDir, "adaptive-workflow-memory.json");
 const generatedDir = app.isPackaged ? path.join(userDataDir, "projects") : path.join(engineRoot, "examples", "generated");
-const outputRoot = app.isPackaged ? path.join(userDataDir, "output") : path.join(engineRoot, "output");
-const exportsRoot = app.isPackaged ? path.join(userDataDir, "exports") : path.join(engineRoot, "exports");
+const creatorVideoRoot = path.join(app.getPath("videos"), "Automatic Video Editor");
+const outputRoot = path.join(creatorVideoRoot, "renders");
+const exportsRoot = path.join(creatorVideoRoot, "packages");
+const legacyOutputRoots = [
+  path.join(userDataDir, "output"),
+  path.join(userDataDir, "exports"),
+  path.join(engineRoot, "output"),
+  path.join(engineRoot, "exports")
+];
 const tempDir = path.join(app.getPath("temp"), "automatic-video-editor-desktop");
 const videoImportExtensions = ["mp4", "mov", "mkv", "avi", "webm", "flv", "wmv", "mpeg", "mpg", "m4v", "ts", "mts", "m2ts"];
 const imageImportExtensions = ["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff", "tif", "svg"];
@@ -510,6 +517,9 @@ function registerIpc() {
     const summaryPath = path.join(outputDir, "beginner_auto_template_summary.json");
     const text = result.ok && fsSync.existsSync(projectPath) ? await fs.readFile(projectPath, "utf-8") : undefined;
     const data = result.ok ? await readJsonIfExists(summaryPath) : undefined;
+    if (result.ok && text && data) {
+      await moveBeginnerRenderToVideos(data, text, projectPath, payload);
+    }
     if (result.ok && fsSync.existsSync(projectPath)) await addRecent(projectPath);
     return { ...result, text, path: projectPath, data };
   });
@@ -915,7 +925,8 @@ function registerIpc() {
   ipcMain.handle("settings:pickExportFolder", async () => pickFolder("Choose default export folder"));
 
   ipcMain.handle("settings:save", async (_event, settings: unknown) => {
-    const next = { ...defaultSettings(), ...(settings as Record<string, unknown>) };
+    const incoming = settings && typeof settings === "object" ? settings as Partial<AppSettings> : {};
+    const next = normalizeSettings(incoming);
     await fs.mkdir(userDataDir, { recursive: true });
     await fs.writeFile(settingsPath, JSON.stringify(next, null, 2), "utf-8");
     const keys = settings && typeof settings === "object" ? Object.keys(settings as Record<string, unknown>) : [];
@@ -1152,10 +1163,7 @@ async function enqueueRender(payload: RenderPayload) {
   if (payload.projectPath) await addRecent(payload.projectPath);
   const requestedFormat = payload.format || "mp4";
   const extension = requestedFormat === "image_sequence" ? "png" : requestedFormat;
-  const outputName = requestedFormat === "image_sequence"
-    ? `${payload.quality === "preview" ? "desktop_preview" : "desktop_final"}_%05d.${extension}`
-    : `${payload.quality === "preview" ? "desktop_preview" : "desktop_final"}.${extension}`;
-  const outputPath = payload.outputPath || path.join(outputRoot, outputName);
+  const outputPath = payload.outputPath || defaultRenderOutputPath(payload, runId, extension);
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   const args = ["render", input, "-o", outputPath, "--quality", payload.quality];
   if (payload.preset) args.push("--preset", payload.preset);
@@ -1425,6 +1433,124 @@ function slugify(value: string) {
     .slice(0, 40) || "auto-video";
 }
 
+function timestampForFilename(date = new Date()) {
+  return date
+    .toISOString()
+    .replace(/\.\d{3}Z$/, "Z")
+    .replace(/:/g, "")
+    .replace("T", "-");
+}
+
+function defaultRenderOutputPath(payload: RenderPayload, runId: string, extension: string) {
+  const projectName = slugify(renderProjectName(payload));
+  const quality = slugify(payload.quality || "render");
+  const preset = slugify(payload.preset || "project");
+  const shortRun = runId.replace(/-/g, "").slice(0, 8);
+  const baseName = `${projectName}-${quality}-${preset}-${timestampForFilename()}-${shortRun}`;
+  if (payload.format === "image_sequence") {
+    return path.join(outputRoot, baseName, `${baseName}_%05d.${extension}`);
+  }
+  return path.join(outputRoot, `${baseName}.${extension}`);
+}
+
+async function moveBeginnerRenderToVideos(data: Record<string, any>, text: string, projectPath: string, payload: BeginnerAutoTemplatePayload) {
+  const outputs = data.outputs || {};
+  const renderedVideo = outputs.renderedVideo || data.renderPath;
+  if (typeof renderedVideo !== "string" || !fsSync.existsSync(renderedVideo)) return;
+  const extension = path.extname(renderedVideo).replace(".", "") || "mp4";
+  const preset = String(data.smartDefaults?.exportPreset || data.template?.export_settings?.preset || "project");
+  const outputPath = defaultRenderOutputPath(
+    {
+      text,
+      projectPath,
+      quality: payload.quality || "preview",
+      preset,
+      format: extension as RenderPayload["format"],
+      label: payload.productName || "Beginner Auto Video",
+    },
+    crypto.randomUUID(),
+    extension,
+  );
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  await fs.copyFile(renderedVideo, outputPath);
+  data.outputs = {
+    ...outputs,
+    engineRenderedVideo: renderedVideo,
+    renderedVideo: outputPath,
+    localVideosFolder: outputRoot,
+  };
+}
+
+function renderProjectName(payload: RenderPayload) {
+  const fromProject = projectTitleFromText(payload.text);
+  if (fromProject) return fromProject;
+  if (payload.projectPath) return path.basename(payload.projectPath, path.extname(payload.projectPath));
+  if (payload.label) return payload.label;
+  return "automatic-video";
+}
+
+function projectTitleFromText(text: string) {
+  try {
+    const data = JSON.parse(text) as Record<string, any>;
+    const metadata = data.metadata || {};
+    const contentGenerator = metadata.contentGenerator || {};
+    const brief = contentGenerator.contentBrief || {};
+    const beginner = metadata.beginnerAutoTemplate || {};
+    const project = data.project || {};
+    const candidates = [
+      data.title,
+      data.name,
+      metadata.title,
+      metadata.name,
+      brief.productName,
+      beginner.template?.name,
+      project.name,
+    ];
+    for (const value of candidates) {
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    const firstTextLayer = firstTimelineText(data.timeline);
+    if (firstTextLayer) return firstTextLayer;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function firstTimelineText(timeline: unknown) {
+  if (!Array.isArray(timeline)) return null;
+  for (const scene of timeline) {
+    if (!scene || typeof scene !== "object") continue;
+    const layers = (scene as Record<string, unknown>).layers;
+    if (!Array.isArray(layers)) continue;
+    for (const layer of layers) {
+      if (!layer || typeof layer !== "object") continue;
+      const layerData = layer as Record<string, unknown>;
+      if (typeof layerData.text === "string" && layerData.text.trim()) {
+        return layerData.text.trim();
+      }
+      if (typeof layerData.title === "string" && layerData.title.trim()) {
+        return layerData.title.trim();
+      }
+    }
+  }
+  return null;
+}
+
+function normalizeSettings(settings: Partial<AppSettings> = {}): AppSettings {
+  const next = { ...defaultSettings(), ...settings };
+  if (!next.defaultExportFolder || isLegacyExportFolder(next.defaultExportFolder)) {
+    next.defaultExportFolder = outputRoot;
+  }
+  return next;
+}
+
+function isLegacyExportFolder(folder: string | null | undefined) {
+  if (!folder) return true;
+  const resolved = path.resolve(folder);
+  return legacyOutputRoots.some((legacy) => resolved === path.resolve(legacy));
+}
+
 async function writeTempProject(text: string, prefix: string) {
   await fs.mkdir(tempDir, { recursive: true });
   const filePath = path.join(tempDir, `${prefix}-${Date.now()}.json`);
@@ -1466,7 +1592,7 @@ function defaultSettings(): AppSettings {
     defaultWorkflow: "quick",
     defaultPlatform: "youtube_shorts",
     defaultStyle: "cinematic",
-    defaultExportFolder: exportsRoot,
+    defaultExportFolder: outputRoot,
     beginnerTips: true,
     workspacePreset: "editing",
     panelDock: "standard",
@@ -1483,9 +1609,9 @@ function defaultSettings(): AppSettings {
 async function readSettings(): Promise<AppSettings> {
   try {
     const text = await fs.readFile(settingsPath, "utf-8");
-    return { ...defaultSettings(), ...JSON.parse(text) };
+    return normalizeSettings(JSON.parse(text));
   } catch {
-    return defaultSettings();
+    return normalizeSettings();
   }
 }
 

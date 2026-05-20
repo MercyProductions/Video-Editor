@@ -58,8 +58,9 @@ def select_highlights(
     clips = [path for path in folder.rglob("*") if path.suffix.lower() in VIDEO_EXTENSIONS]
     analyses = [_analyze_clip(path, scene_duration) for path in clips]
     usable = [clip for clip in analyses if not clip.deadFootage]
-    usable.sort(key=lambda clip: clip.highlightScore, reverse=True)
-    selected = usable[:max_clips]
+    candidates = usable or analyses
+    candidates.sort(key=lambda clip: clip.highlightScore, reverse=True)
+    selected = candidates[:max_clips]
 
     result = {
         "folder": str(folder),
@@ -180,8 +181,8 @@ def _selection_warnings(clips: list[Path], analyses: list[ClipAnalysis], selecte
     warnings: list[str] = []
     if not clips:
         warnings.append("No video clips found in folder.")
-    if analyses and not selected:
-        warnings.append("All scanned clips looked like dead footage.")
+    if analyses and not [clip for clip in analyses if not clip.deadFootage]:
+        warnings.append("All scanned clips were low-motion; using the best steady footage instead of dropping the media.")
     return warnings
 
 

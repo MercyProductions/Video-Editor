@@ -17,7 +17,7 @@ from content.review import (
     write_review_outputs,
 )
 from intelligence.beat_sync import analyze_audio
-from media.compat import IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
+from media.compat import IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, analyze_media
 from parser.project_parser import ProjectParser
 from preview.reporter import generate_preview
 from renderer.renderer import VideoRenderer
@@ -148,6 +148,7 @@ def run_content_generator(
             "beats": music_analysis.get("beats", [])[:24],
             "bassDrops": music_analysis.get("bassDrops", [])[:8],
         }
+    _apply_source_quality_to_plan(plan, clip_report)
     project = build_project_from_plan(plan, clip_report, music_path=music_path, logo_path=logo_path)
     project, repair_report = _validate_or_repair(project)
     plan.setdefault("warnings", []).extend(repair_report.get("warnings", []))
@@ -454,8 +455,8 @@ def _project_scene(
             "width": width,
             "height": height,
             "fit": "cover",
-            "contrast": 1.04,
-            "brightness": 0.015,
+            "contrast": 1.03,
+            "brightness": 0.035,
             "camera": _camera_for(style, scene),
             "animation": {"in": "zoomIn", "out": "fade", "duration": 0.25},
         }
@@ -467,7 +468,7 @@ def _project_scene(
             layer["trimStart"] = trim_start
             layer["trimEnd"] = round(trim_start + duration, 3)
         layers.append(layer)
-        layers.append({"type": "shape", "x": 0, "y": 0, "width": width, "height": height, "color": "#000000", "opacity": 0.07})
+        layers.append({"type": "shape", "x": 0, "y": 0, "width": width, "height": height, "color": "#000000", "opacity": 0.025})
     else:
         layers.append({"type": "animated_background", "color": style["accent"], "opacity": 0.12, "speed": 100, "start": 0, "duration": duration})
         layers.append({"type": "particle", "color": style["secondary"], "opacity": 0.22, "count": 22, "start": 0, "duration": duration})
@@ -786,8 +787,10 @@ def _select_media(assets_folder: Path | None, *, output_dir: Path, scene_duratio
         return {"folder": str(assets_folder), "selected": [], "images": [], "warnings": [f"Assets folder does not exist: {assets_folder}"]}
     warnings: list[str] = []
     selected: list[dict[str, Any]] = []
+    analyzed_clips: list[dict[str, Any]] = []
     try:
         report = select_highlights(assets_folder, scene_duration=scene_duration, max_clips=max_clips)
+        analyzed_clips = report.get("clips", [])
         raw_selected = report.get("selected", [])
         selected = _expand_selected_segments(raw_selected, max_clips=max_clips, scene_duration=scene_duration)
         report["rawSelectedClipCount"] = len(raw_selected)
@@ -803,7 +806,68 @@ def _select_media(assets_folder: Path | None, *, output_dir: Path, scene_duratio
     except Exception as exc:
         warnings.append(f"Video highlight selection skipped: {exc}")
     images = [str(path.resolve()) for path in sorted(assets_folder.rglob("*")) if path.suffix.lower() in IMAGE_EXTENSIONS][:8]
-    return {"folder": str(assets_folder), "selected": selected, "images": images, "warnings": warnings}
+    return {"folder": str(assets_folder), "selected": selected, "clips": analyzed_clips, "images": images, "warnings": warnings}
+
+
+def _apply_source_quality_to_plan(plan: dict[str, Any], clip_report: dict[str, Any]) -> None:
+    brief = plan.get("contentBrief", {})
+    if not _is_landscape_export(brief):
+        return
+    source = _best_source_resolution(clip_report)
+    if not source:
+        return
+    width = int(source["width"])
+    height = int(source["height"])
+    if width < 3840 and height < 2160:
+        return
+    brief["width"] = 3840
+    brief["height"] = 2160
+    brief["fps"] = max(int(brief.get("fps", 60) or 60), 60)
+    brief["exportPreset"] = "high_quality_archive"
+    plan.setdefault("editingStyle", {})["sourceQuality"] = {
+        "mode": "preserve_up_to_4k",
+        "sourceWidth": width,
+        "sourceHeight": height,
+        "outputWidth": 3840,
+        "outputHeight": 2160,
+        "exportPreset": "high_quality_archive",
+    }
+    plan.setdefault("warnings", []).append(
+        f"Detected {width}x{height} source footage; landscape export was promoted to 4K archive quality."
+    )
+
+
+def _is_landscape_export(brief: dict[str, Any]) -> bool:
+    width = int(brief.get("width", 0) or 0)
+    height = int(brief.get("height", 0) or 0)
+    platform = str(brief.get("targetPlatform") or "").lower()
+    if platform in {"shorts", "youtube_shorts", "tiktok", "reels", "instagram_reels", "instagram", "square"}:
+        return False
+    return width >= height
+
+
+def _best_source_resolution(clip_report: dict[str, Any]) -> dict[str, int] | None:
+    best: dict[str, int] | None = None
+    source_clips = list(clip_report.get("selected", []) or []) or list(clip_report.get("clips", []) or [])
+    for clip in source_clips:
+        if not isinstance(clip, dict) or not clip.get("path"):
+            continue
+        try:
+            metadata = analyze_media(Path(str(clip["path"])))
+        except Exception:
+            continue
+        resolution = metadata.get("resolution") if isinstance(metadata, dict) else None
+        if not isinstance(resolution, dict):
+            continue
+        width = int(resolution.get("width") or 0)
+        height = int(resolution.get("height") or 0)
+        if width <= 0 or height <= 0:
+            continue
+        if width < height:
+            continue
+        if not best or width * height > best["width"] * best["height"]:
+            best = {"width": width, "height": height}
+    return best
 
 
 def _expand_selected_segments(selected: list[dict[str, Any]], *, max_clips: int, scene_duration: float) -> list[dict[str, Any]]:

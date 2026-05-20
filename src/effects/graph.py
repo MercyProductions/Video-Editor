@@ -8,15 +8,15 @@ from renderer.filters import ffmpeg_color, filter_path, fmt
 
 EFFECT_GRAPH_PRESETS: dict[str, list[dict[str, Any]]] = {
     "cinematic_polish": [
-        {"type": "color_grade", "contrast": 1.04, "brightness": 0.018, "saturation": 1.04},
-        {"type": "vignette", "intensity": 0.14},
+        {"type": "color_grade", "contrast": 1.035, "brightness": 0.03, "saturation": 1.035},
+        {"type": "vignette", "intensity": 0.07},
         {"type": "sharpen", "amount": 0.22},
     ],
     "premium_red_black": [
-        {"type": "color_grade", "contrast": 1.07, "brightness": 0.01, "saturation": 1.06},
-        {"type": "tint", "color": "#ef4444", "opacity": 0.035},
-        {"type": "vignette", "intensity": 0.16},
-        {"type": "glow", "amount": 0.14},
+        {"type": "color_grade", "contrast": 1.055, "brightness": 0.028, "saturation": 1.05},
+        {"type": "tint", "color": "#ef4444", "opacity": 0.02},
+        {"type": "vignette", "intensity": 0.08},
+        {"type": "glow", "amount": 0.1},
     ],
     "soft_luxury": [
         {"type": "color_grade", "contrast": 1.03, "brightness": 0.02, "saturation": 0.98},

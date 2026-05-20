@@ -550,13 +550,14 @@ function presetForOnboardingPlatform(platform: string) {
   return "youtube_1080p";
 }
 
-function outputPathFromDefaultFolder(folder: string | null | undefined, projectTitle: string, quality: "preview" | "final", format: string) {
+function outputPathFromDefaultFolder(folder: string | null | undefined, projectTitle: string, quality: "preview" | "final", format: string, presetValue = "project") {
   if (!folder) return null;
   const cleanFolder = folder.replace(/[\\/]+$/, "");
   if (!cleanFolder) return null;
   const sep = cleanFolder.includes("\\") ? "\\" : "/";
-  const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12);
-  const baseName = `${projectTitle || "automatic-video"}-${quality}-${stamp}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 72) || `automatic-video-${quality}`;
+  const stamp = new Date().toISOString().replace(/\.\d{3}Z$/, "Z").replace(/:/g, "").replace("T", "-");
+  const nonce = Math.random().toString(36).slice(2, 6);
+  const baseName = `${projectTitle || "automatic-video"}-${quality}-${presetValue}-${stamp}-${nonce}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 96) || `automatic-video-${quality}`;
   return `${cleanFolder}${sep}${baseName}.${format || "mp4"}`;
 }
 
@@ -2600,7 +2601,7 @@ function App() {
     const result = await window.ave.startRender({
       text: projectText,
       projectPath: renderProjectPath,
-      outputPath: outputPathFromDefaultFolder(settings.defaultExportFolder, projectTitle, renderQuality, exportFormat),
+      outputPath: outputPathFromDefaultFolder(settings.defaultExportFolder, projectTitle, renderQuality, exportFormat, preset),
       quality: renderQuality,
       preset,
       format: exportFormat,
@@ -6584,7 +6585,7 @@ function EditorModal({
               <label>Default workflow<select value={settings.defaultWorkflow} onChange={(event) => setSettings((current) => ({ ...current, defaultWorkflow: event.target.value as AppSettings["defaultWorkflow"] }))}><option value="quick">Quick Create</option><option value="guided">Guided Create</option><option value="advanced">Advanced Editor</option></select></label>
               <label>Default platform<select value={settings.defaultPlatform} onChange={(event) => setSettings((current) => ({ ...current, defaultPlatform: event.target.value }))}><option value="youtube_shorts">YouTube Shorts</option><option value="tiktok">TikTok</option><option value="instagram_reels">Reels</option><option value="standard">Standard video</option></select></label>
               <label>Default style<select value={settings.defaultStyle} onChange={(event) => setSettings((current) => ({ ...current, defaultStyle: event.target.value }))}><option value="clean">Clean</option><option value="gaming">Gaming</option><option value="cinematic">Cinematic</option><option value="podcast">Podcast</option><option value="educational">Educational</option><option value="hype">Hype</option></select></label>
-              <label>Default export folder<input value={settings.defaultExportFolder || ""} readOnly placeholder="Use app exports folder" /></label>
+              <label>Default render folder<input value={settings.defaultExportFolder || ""} readOnly placeholder="Use Videos / Automatic Video Editor / renders" /></label>
               <button onClick={async () => {
                 const folder = await onPickExportFolder();
                 if (folder) setSettings((current) => ({ ...current, defaultExportFolder: folder }));
@@ -6975,9 +6976,9 @@ function OnboardingFlow({
       </section>
 
       <section className="wide-panel">
-        <h2>4. Default export folder</h2>
+        <h2>4. Default render folder</h2>
         <div className="folder-choice-row">
-          <input readOnly value={draft.defaultExportFolder || ""} placeholder="Use the app exports folder" />
+          <input readOnly value={draft.defaultExportFolder || ""} placeholder="Use Videos / Automatic Video Editor / renders" />
           <button onClick={onPickExportFolder}><FolderOpen size={14} /> Choose Folder</button>
         </div>
       </section>
@@ -12891,11 +12892,12 @@ function RenderPanel({
     { key: "tiktok", label: "TikTok", preset: "tiktok_reels", aspect: "9:16", resolution: "1080p", fps: 60, note: "Fast vertical social export." },
     { key: "instagram", label: "Instagram Reels", preset: "instagram_reels", aspect: "9:16", resolution: "1080p", fps: 60, note: "Reels-safe 1080x1920." },
     { key: "youtube", label: "YouTube normal video", preset: "youtube_1080p", aspect: "16:9", resolution: "1080p", fps: 60, note: "Standard landscape upload." },
+    { key: "archive4k", label: "4K / Archive", preset: "high_quality_archive", aspect: "16:9", resolution: "4k", fps: 60, note: "Preserve 4K or higher landscape sources up to 3840x2160." },
     { key: "x", label: "Twitter/X", preset: "youtube_1080p", aspect: "16:9", resolution: "1080p", fps: 30, note: "MP4 landscape, social-safe bitrate." },
     { key: "facebook", label: "Facebook", preset: "youtube_1080p", aspect: "16:9", resolution: "1080p", fps: 30, note: "Broad compatibility." },
     { key: "custom", label: "Custom", preset, aspect: aspectRatio, resolution: resolutionSetting, fps: fpsSetting, note: "Use the manual settings below." }
   ];
-  const selectedPlatform = platformPresets.find((item) => item.key === selectedPlatformKey) || platformPresets[6];
+  const selectedPlatform = platformPresets.find((item) => item.key === selectedPlatformKey) || platformPresets.find((item) => item.key === "custom");
   const exportWarnings = project ? exportReadinessWarnings(project, finalPreflight, { resolutionSetting, aspectRatio, burnCaptions }) : [];
   const activeJob = activeQueueJob && ["running", "queued"].includes(activeQueueJob.status) ? activeQueueJob : null;
 
@@ -12913,7 +12915,7 @@ function RenderPanel({
     setSelectedPlatformKey("custom");
     setResolutionSetting(value);
     if (value === "720p") setPreset("discord_720p");
-    if (value === "4k") setPreset("cinematic_4k");
+    if (value === "4k") setPreset("high_quality_archive");
     if (value === "1080p" && aspectRatio === "1:1") setPreset("square");
     if (value === "1080p" && aspectRatio === "9:16") setPreset(preset === "instagram_reels" ? "instagram_reels" : "shorts");
     if (value === "1080p" && aspectRatio === "16:9") setPreset("youtube_1080p");

@@ -464,6 +464,15 @@ def _style_for_beginner_vibe(desired_vibe: str, template_style: str) -> str:
 
 def _annotate_project(project_path: Path, preset: BeginnerTemplate, staged: dict[str, Any], *, desired_vibe: str, target_platform: str, smart_defaults: dict[str, Any]) -> None:
     data = json.loads(project_path.read_text(encoding="utf-8"))
+    project_settings = data.get("project", {})
+    if int(project_settings.get("width", 0) or 0) > int(smart_defaults.get("width", 0) or 0):
+        smart_defaults = {
+            **smart_defaults,
+            "width": int(project_settings.get("width", smart_defaults["width"])),
+            "height": int(project_settings.get("height", smart_defaults["height"])),
+            "fps": int(project_settings.get("fps", smart_defaults["fps"])),
+            "exportPreset": data.get("exportPreset") or project_settings.get("exportPreset") or smart_defaults["exportPreset"],
+        }
     metadata = data.setdefault("metadata", {})
     metadata["beginnerAutoTemplate"] = {
         "template": asdict(preset),
