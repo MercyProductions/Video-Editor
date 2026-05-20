@@ -1487,9 +1487,7 @@ async function writeAdaptiveMemory(memory: AdaptiveWorkflowMemory): Promise<Adap
     events: memory.events.slice(-500)
   };
   await fs.mkdir(path.dirname(adaptiveMemoryPath), { recursive: true });
-  const tmpPath = `${adaptiveMemoryPath}.tmp`;
-  await fs.writeFile(tmpPath, JSON.stringify(next, null, 2), "utf-8");
-  await fs.rename(tmpPath, adaptiveMemoryPath);
+  await fs.writeFile(adaptiveMemoryPath, JSON.stringify(next, null, 2), "utf-8");
   return next;
 }
 
