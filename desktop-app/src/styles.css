@@ -2148,3 +2148,261 @@ textarea {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Navigation polish: keep the editor usable by making dense rails optional and grouped. */
+.app-shell {
+  grid-template-rows: 58px minmax(0, 1fr) 28px;
+}
+
+.topbar {
+  gap: 16px;
+  padding: 0 16px;
+}
+
+.topbar > div:first-child {
+  flex: 1 1 260px;
+  max-width: 440px;
+}
+
+.toolbar {
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-end;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.toolbar button,
+.tabs button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.workspace {
+  grid-template-columns: minmax(238px, 260px) minmax(560px, 1fr) minmax(320px, 360px);
+  grid-template-rows: auto minmax(0, 1fr);
+  background: #0f0e0c;
+}
+
+.processing-slot {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.left-rail {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.center-stage {
+  grid-column: 2;
+  grid-row: 2;
+  border-left: 1px solid #25221d;
+  border-right: 1px solid #25221d;
+}
+
+.right-rail {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.left-rail-collapsed .workspace {
+  grid-template-columns: 0 minmax(560px, 1fr) minmax(320px, 360px);
+}
+
+.right-rail-collapsed .workspace {
+  grid-template-columns: minmax(238px, 260px) minmax(560px, 1fr) 0;
+}
+
+.left-rail-collapsed.right-rail-collapsed .workspace {
+  grid-template-columns: 0 minmax(560px, 1fr) 0;
+}
+
+.left-rail-collapsed .left-rail,
+.right-rail-collapsed .right-rail {
+  display: none;
+}
+
+.mode-beginner .workspace {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.mode-beginner .center-stage {
+  grid-column: 1;
+  border-left: 0;
+  border-right: 0;
+}
+
+.left-rail,
+.right-rail {
+  padding: 14px;
+  background: #151410;
+}
+
+.panel-stack,
+.right-rail {
+  gap: 10px;
+}
+
+.rail-section {
+  min-width: 0;
+  border: 1px solid #353128;
+  border-radius: 8px;
+  background: #181713;
+  overflow: hidden;
+}
+
+.rail-section[open] {
+  background: #1b1915;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.rail-section > summary {
+  min-height: 42px;
+  padding: 0 11px;
+  color: #f4f0e8;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  list-style: none;
+}
+
+.rail-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.rail-section > summary::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-right: 1.5px solid #b7afa2;
+  border-bottom: 1.5px solid #b7afa2;
+  transform: rotate(45deg);
+  transition: transform 140ms ease;
+}
+
+.rail-section[open] > summary::after {
+  transform: rotate(225deg);
+}
+
+.rail-section > :not(summary) {
+  margin: 0 10px 10px;
+}
+
+.rail-section > .panel {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.rail-section > .panel h2 {
+  display: none;
+}
+
+.rail-section .button-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.rail-section .button-grid button {
+  min-width: 0;
+}
+
+.rail-section textarea {
+  min-height: 82px;
+}
+
+.panel,
+.wide-panel {
+  border: 1px solid #353128;
+  border-radius: 8px;
+  background: #181713;
+  padding: 12px;
+}
+
+.panel {
+  border-top: 1px solid #353128;
+}
+
+.wide-panel {
+  border-top: 1px solid #353128;
+}
+
+.tabs {
+  min-width: 0;
+  padding: 7px 12px;
+  gap: 7px;
+  scrollbar-width: thin;
+}
+
+.tabs button {
+  padding-inline: 9px;
+}
+
+.processing-dock.collapsed {
+  padding: 6px 12px;
+}
+
+.processing-compact {
+  grid-template-columns: 18px minmax(130px, 0.55fr) minmax(180px, 1fr) minmax(160px, 0.9fr) auto;
+}
+
+.list-row span,
+.queue-row span,
+.template-grid button {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1240px) {
+  .app-shell:not(.mode-beginner) .workspace {
+    grid-template-columns: 0 minmax(0, 1fr) 0;
+  }
+
+  .app-shell:not(.mode-beginner) .left-rail,
+  .app-shell:not(.mode-beginner) .right-rail {
+    display: none;
+  }
+
+  .app-shell:not(.mode-beginner) .center-stage {
+    grid-column: 2;
+  }
+
+  .topbar {
+    gap: 10px;
+  }
+
+  .topbar > div:first-child {
+    flex-basis: 210px;
+  }
+}
+
+@media (max-width: 760px) {
+  .app-shell {
+    grid-template-rows: auto minmax(0, 1fr) 28px;
+  }
+
+  .topbar {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 8px 10px;
+  }
+
+  .toolbar {
+    justify-content: flex-start;
+  }
+
+  .processing-compact {
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+  }
+
+  .processing-compact span:nth-of-type(2),
+  .processing-compact span:nth-of-type(3) {
+    display: none;
+  }
+}

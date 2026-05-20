@@ -362,10 +362,12 @@ function App() {
   const [adaptiveMemory, setAdaptiveMemory] = useState<AdaptiveWorkflowMemory | null>(null);
   const [processing, setProcessing] = useState<ProcessingState>(idleProcessingState);
   const [activityFeed, setActivityFeed] = useState<ProcessingActivity[]>([]);
-  const [processingCollapsed, setProcessingCollapsed] = useState(false);
+  const [processingCollapsed, setProcessingCollapsed] = useState(true);
   const [assistantDraft, setAssistantDraft] = useState("");
   const [assistantMessages, setAssistantMessages] = useState<CollaborationMessage[]>([]);
   const [proactiveMuted, setProactiveMuted] = useState(false);
+  const [leftRailOpen, setLeftRailOpen] = useState(true);
+  const [rightRailOpen, setRightRailOpen] = useState(true);
   const [backgroundImprovements, setBackgroundImprovements] = useState<BackgroundImprovement[]>([]);
 
   const parsed = useMemo(() => parseProject(projectText), [projectText]);
@@ -576,6 +578,7 @@ function App() {
       etaSeconds: kind === "success" ? 0 : current.etaSeconds,
       workers: current.workers.map((worker) => ({ ...worker, status: kind === "success" ? "complete" : worker.status }))
     }));
+    if (kind === "success") setProcessingCollapsed(true);
     pushActivity(label, kind);
   }
 
@@ -1563,7 +1566,7 @@ function App() {
   }
 
   return (
-    <div className={`app-shell theme-${settings.theme} mode-${uiMode}`}>
+    <div className={`app-shell theme-${settings.theme} mode-${uiMode} ${leftRailOpen ? "" : "left-rail-collapsed"} ${rightRailOpen ? "" : "right-rail-collapsed"}`}>
       <header className="topbar">
         <div>
           <strong>Automatic Video Editor</strong>
@@ -1580,6 +1583,12 @@ function App() {
           )}
           {uiMode === "advanced" && (
             <>
+              <button title={leftRailOpen ? "Hide dashboard panel" : "Show dashboard panel"} onClick={() => setLeftRailOpen((open) => !open)}>
+                <LayoutTemplate size={16} /> Dashboard
+              </button>
+              <button title={rightRailOpen ? "Hide AI/render controls" : "Show AI/render controls"} onClick={() => setRightRailOpen((open) => !open)}>
+                <Bot size={16} /> Controls
+              </button>
               <button title="New project" onClick={() => { setProjectText(formatProject(blankProject())); setProjectPath(null); setUiMode("advanced"); setActiveTab("json"); }}>
                 <Plus size={16} /> New
               </button>
@@ -1635,7 +1644,7 @@ function App() {
             />
           )}
         </div>
-        <aside className="left-rail">
+        <aside className="left-rail" aria-hidden={!leftRailOpen}>
           <Dashboard
             recent={recent}
             templates={engine?.templates || []}
@@ -1880,71 +1889,80 @@ function App() {
           )}
         </section>
 
-        <aside className="right-rail">
-          <AiPanel
-            prompt={prompt}
-            setPrompt={setPrompt}
-            contentMode={contentMode}
-            setContentMode={setContentMode}
-            contentTone={contentTone}
-            setContentTone={setContentTone}
-            generationReview={generationReview}
-            generationLocks={generationLocks}
-            notes={aiNotes}
-            onGenerate={generateFromPrompt}
-            onYouTubeShort={generateYouTubeShort}
-            onContentGenerate={() => generateContentMode("full")}
-            onAutonomousPipeline={runAutonomousPipeline}
-            onContentRegenerate={(target) => generateContentMode(target)}
-            onContentApprove={(section, statusValue) => approveGeneratedPlan(section, statusValue)}
-            onContentLock={lockGenerationSection}
-            onExplain={() => project && setAiNotes(explainProject(project))}
-            onRepair={repair}
-            onDirector={runDirector}
-            onSuggestTransitions={() => project && updateProject(suggestBetterTransitions(project))}
-            onAddScene={() => project && updateProject(addScene(project))}
-            onCaptions={async () => {
-              const transcript = await window.ave.pickTranscript();
-              if (!transcript) return;
-              const result = await window.ave.addCaptions({ text: projectText, transcriptPath: transcript, mode: "word", style: "tiktok" });
-              if (result.ok && result.text) setProjectText(result.text);
-            }}
-          />
-          <ProactiveAssistantPanel
-            analysis={proactiveAnalysis}
-            backgroundImprovements={backgroundImprovements}
-            muted={proactiveMuted}
-            onMute={setProactiveMuted}
-            onApplySuggestion={applyProactiveSuggestion}
-            onApplyImprovement={applyBackgroundImprovement}
-            onDismissImprovement={(id) => setBackgroundImprovements((items) => items.filter((item) => item.id !== id))}
-          />
-          <RenderPanel
-            preset={preset}
-            setPreset={setPreset}
-            exportFormat={exportFormat}
-            setExportFormat={setExportFormat}
-            quality={quality}
-            setQuality={setQuality}
-            cache={useCache}
-            setCache={setUseCache}
-            resume={resume}
-            setResume={setResume}
-            gpu={gpu}
-            setGpu={setGpu}
-            logs={renderLogs}
-            renderQueueItems={renderQueueItems}
-            finalPreflight={finalPreflightReport}
-            onPreflight={() => { void runFinalPreflight(true); }}
-            onRepairPreflight={(mode, issueId) => repairFinalPreflight(mode, issueId)}
-            onPreview={() => render("Preview render", "preview")}
-            onFinal={() => render("Final render", "final")}
-            onPauseQueue={async () => setRenderQueueItems(await window.ave.pauseRenderQueue())}
-            onResumeQueue={async () => setRenderQueueItems(await window.ave.resumeRenderQueue())}
-            onCancelJob={async (runId) => setRenderQueueItems(await window.ave.cancelRenderJob({ runId }))}
-            onRetryJob={async (runId) => setRenderQueueItems(await window.ave.retryRenderJob({ runId }))}
-            onOpenOutput={() => window.ave.openOutputFolder()}
-          />
+        <aside className="right-rail" aria-hidden={!rightRailOpen}>
+          <details className="rail-section" open>
+            <summary><Bot size={15} /> AI Assistant</summary>
+            <AiPanel
+              prompt={prompt}
+              setPrompt={setPrompt}
+              contentMode={contentMode}
+              setContentMode={setContentMode}
+              contentTone={contentTone}
+              setContentTone={setContentTone}
+              generationReview={generationReview}
+              generationLocks={generationLocks}
+              notes={aiNotes}
+              onGenerate={generateFromPrompt}
+              onYouTubeShort={generateYouTubeShort}
+              onContentGenerate={() => generateContentMode("full")}
+              onAutonomousPipeline={runAutonomousPipeline}
+              onContentRegenerate={(target) => generateContentMode(target)}
+              onContentApprove={(section, statusValue) => approveGeneratedPlan(section, statusValue)}
+              onContentLock={lockGenerationSection}
+              onExplain={() => project && setAiNotes(explainProject(project))}
+              onRepair={repair}
+              onDirector={runDirector}
+              onSuggestTransitions={() => project && updateProject(suggestBetterTransitions(project))}
+              onAddScene={() => project && updateProject(addScene(project))}
+              onCaptions={async () => {
+                const transcript = await window.ave.pickTranscript();
+                if (!transcript) return;
+                const result = await window.ave.addCaptions({ text: projectText, transcriptPath: transcript, mode: "word", style: "tiktok" });
+                if (result.ok && result.text) setProjectText(result.text);
+              }}
+            />
+          </details>
+          <details className="rail-section">
+            <summary><Sparkles size={15} /> Creative Coach</summary>
+            <ProactiveAssistantPanel
+              analysis={proactiveAnalysis}
+              backgroundImprovements={backgroundImprovements}
+              muted={proactiveMuted}
+              onMute={setProactiveMuted}
+              onApplySuggestion={applyProactiveSuggestion}
+              onApplyImprovement={applyBackgroundImprovement}
+              onDismissImprovement={(id) => setBackgroundImprovements((items) => items.filter((item) => item.id !== id))}
+            />
+          </details>
+          <details className="rail-section" open>
+            <summary><MonitorPlay size={15} /> Render & Export</summary>
+            <RenderPanel
+              preset={preset}
+              setPreset={setPreset}
+              exportFormat={exportFormat}
+              setExportFormat={setExportFormat}
+              quality={quality}
+              setQuality={setQuality}
+              cache={useCache}
+              setCache={setUseCache}
+              resume={resume}
+              setResume={setResume}
+              gpu={gpu}
+              setGpu={setGpu}
+              logs={renderLogs}
+              renderQueueItems={renderQueueItems}
+              finalPreflight={finalPreflightReport}
+              onPreflight={() => { void runFinalPreflight(true); }}
+              onRepairPreflight={(mode, issueId) => repairFinalPreflight(mode, issueId)}
+              onPreview={() => render("Preview render", "preview")}
+              onFinal={() => render("Final render", "final")}
+              onPauseQueue={async () => setRenderQueueItems(await window.ave.pauseRenderQueue())}
+              onResumeQueue={async () => setRenderQueueItems(await window.ave.resumeRenderQueue())}
+              onCancelJob={async (runId) => setRenderQueueItems(await window.ave.cancelRenderJob({ runId }))}
+              onRetryJob={async (runId) => setRenderQueueItems(await window.ave.retryRenderJob({ runId }))}
+              onOpenOutput={() => window.ave.openOutputFolder()}
+            />
+          </details>
         </aside>
       </main>
 
@@ -2512,8 +2530,8 @@ function Dashboard({
 }) {
   return (
     <div className="panel-stack">
-      <section className="panel">
-        <h2><Clock size={16} /> Recent Projects</h2>
+      <details className="rail-section" open>
+        <summary><Clock size={15} /> Recent Projects</summary>
         <div className="list">
           {recent.length === 0 && <span className="muted">No recent projects yet</span>}
           {recent.map((item) => (
@@ -2523,9 +2541,9 @@ function Dashboard({
             </button>
           ))}
         </div>
-      </section>
-      <section className="panel">
-        <h2><LayoutTemplate size={16} /> Template Gallery</h2>
+      </details>
+      <details className="rail-section" open>
+        <summary><LayoutTemplate size={15} /> Template Gallery</summary>
         <div className="template-grid">
           {templates.map((template) => (
             <button key={template} onClick={() => onTemplate(template)} title={`Create ${templateLabels[template] || template}`}>
@@ -2533,9 +2551,9 @@ function Dashboard({
             </button>
           ))}
         </div>
-      </section>
-      <section className="panel">
-        <h2><Scissors size={16} /> Render Queue</h2>
+      </details>
+      <details className="rail-section">
+        <summary><Scissors size={15} /> Render Queue</summary>
         <div className="list">
           {renderQueueItems.length === 0 && renderJobs.length === 0 && <span className="muted">No renders queued</span>}
           {renderQueueItems.map((job) => (
@@ -2551,7 +2569,7 @@ function Dashboard({
             </div>
           ))}
         </div>
-      </section>
+      </details>
     </div>
   );
 }
