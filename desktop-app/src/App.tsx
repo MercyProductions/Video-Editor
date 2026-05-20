@@ -3302,7 +3302,7 @@ function App() {
 
   return (
     <div
-      className={`app-shell theme-${settings.theme} scale-${settings.uiScale || "medium"} layout-${settings.panelDock || "standard"} workspace-preset-${settings.workspacePreset || "editing"} mode-${uiMode} ${leftRailOpen ? "" : "left-rail-collapsed"} ${rightRailOpen ? "" : "right-rail-collapsed"}`}
+      className={`app-shell theme-${settings.theme} scale-${settings.uiScale || "medium"} layout-${settings.panelDock || "standard"} workspace-preset-${settings.workspacePreset || "editing"} mode-${uiMode} view-${activeTab} ${leftRailOpen ? "" : "left-rail-collapsed"} ${rightRailOpen ? "" : "right-rail-collapsed"}`}
       style={appStyle}
     >
       <header className="topbar">
@@ -3394,6 +3394,9 @@ function App() {
             activeTab={activeTab}
             onTab={(tab) => { setUiMode("advanced"); setActiveTab(tab); }}
             onModal={setAppModal}
+            onNewProject={() => { void newProjectSafely("editor"); }}
+            onOpenProject={openProject}
+            onBeginner={() => { setUiMode("beginner"); setActiveTab("beginner"); }}
             onImport={importAssets}
             onCaptions={generateCaptionsFromTranscript}
             onHighlights={runAssetIntelligence}
@@ -3469,7 +3472,7 @@ function App() {
               <button title="Pop out preview window" onClick={() => { void popOutWorkspacePanel("preview"); }}><MonitorPlay size={14} /> Pop Preview</button>
             </div>
           </div>
-          <nav className="workflow-tabs">
+          <nav className="workflow-tabs" aria-label="Secondary workflow navigation">
             <button className={activeTab === "home" ? "active" : ""} onClick={() => { setUiMode("advanced"); setActiveTab("home"); }}><LayoutTemplate size={15} /> Home</button>
             {uiMode === "advanced" && (
               <>
@@ -5574,6 +5577,9 @@ function EditorSidebar({
   activeTab,
   onTab,
   onModal,
+  onNewProject,
+  onOpenProject,
+  onBeginner,
   onImport,
   onCaptions,
   onHighlights,
@@ -5586,6 +5592,9 @@ function EditorSidebar({
   activeTab: Tab;
   onTab: (tab: Tab) => void;
   onModal: (modal: AppModal) => void;
+  onNewProject: () => void;
+  onOpenProject: () => void;
+  onBeginner: () => void;
   onImport: () => void;
   onCaptions: () => void;
   onHighlights: () => void;
@@ -5597,6 +5606,27 @@ function EditorSidebar({
 }) {
   return (
     <div className="editor-sidebar">
+      <details className="rail-section sidebar-workflow-section" open>
+        <summary><Wand2 size={15} /> Create</summary>
+        <button className={activeTab === "home" ? "sidebar-action active" : "sidebar-action"} onClick={() => onTab("home")}><LayoutTemplate size={14} /> Project Hub</button>
+        <button className={activeTab === "beginner" ? "sidebar-action active" : "sidebar-action"} onClick={onBeginner}><MonitorPlay size={14} /> New Auto Video</button>
+        <button className={activeTab === "aiStudio" ? "sidebar-action active" : "sidebar-action"} onClick={() => onTab("aiStudio")}><Sparkles size={14} /> AI Studio</button>
+        <button className={activeTab === "templatesMode" ? "sidebar-action active" : "sidebar-action"} onClick={() => onTab("templatesMode")}><LayoutTemplate size={14} /> Template Library</button>
+        <button className="sidebar-action" onClick={onImport}><Import size={14} /> Import Media</button>
+        <button className="sidebar-action" onClick={onOpenProject}><FolderOpen size={14} /> Open Project</button>
+        <button className="primary-sidebar-action" onClick={onNewProject}><Plus size={14} /> New Project</button>
+      </details>
+
+      <details className="rail-section sidebar-workflow-section" open>
+        <summary><MonitorPlay size={15} /> Workflow</summary>
+        <button className={["editor", "preview", "timeline"].includes(activeTab) ? "sidebar-action active" : "sidebar-action"} onClick={() => onTab("editor")}><MonitorPlay size={14} /> Preview + Timeline</button>
+        <button className={activeTab === "assets" ? "sidebar-action active" : "sidebar-action"} onClick={() => onTab("assets")}><Image size={14} /> Media Bin</button>
+        <button className={activeTab === "captionsMode" ? "sidebar-action active" : "sidebar-action"} onClick={() => onTab("captionsMode")}><Captions size={14} /> Captions</button>
+        <button className={activeTab === "reviewMode" ? "sidebar-action active" : "sidebar-action"} onClick={() => onTab("reviewMode")}><CheckCircle2 size={14} /> Review</button>
+        <button className={activeTab === "exportMode" ? "sidebar-action active" : "sidebar-action"} onClick={() => onTab("exportMode")}><Download size={14} /> Export</button>
+        <button className={["diagnostics", "workflow", "json"].includes(activeTab) ? "sidebar-action active" : "sidebar-action"} onClick={() => onTab("diagnostics")}><Clock size={14} /> Logs / Diagnostics</button>
+      </details>
+
       <details className="rail-section" open>
         <summary><Image size={15} /> Media</summary>
         <button className={activeTab === "assets" ? "sidebar-action active" : "sidebar-action"} onClick={() => onTab("assets")}>Imported videos</button>
@@ -5607,14 +5637,14 @@ function EditorSidebar({
         <button className="primary-sidebar-action" onClick={onImport}><Import size={14} /> Import media</button>
       </details>
 
-      <details className="rail-section" open>
+      <details className="rail-section">
         <summary><LayoutTemplate size={15} /> Templates</summary>
         {["YouTube Shorts", "TikTok", "Instagram Reels", "Gaming clips", "Podcast clips", "Educational videos", "Promo/ad templates"].map((label) => (
           <button className="sidebar-action" key={label} onClick={() => onModal("templates")}>{label}</button>
         ))}
       </details>
 
-      <details className="rail-section" open>
+      <details className="rail-section">
         <summary><Sparkles size={15} /> AI Tools</summary>
         <button className="sidebar-action" onClick={() => onModal("ai")}>Auto edit</button>
         <button className="sidebar-action" onClick={onCaptions}>Generate captions</button>
