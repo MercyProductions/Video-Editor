@@ -12305,7 +12305,7 @@ function beginnerRequestFromForm(form: BeginnerFormState): BeginnerAutoTemplateR
     goal: customGoal ? form.goal.trim() : prompt || form.goal.trim() || "Create a polished product video.",
     keyFeatures: customFeatures ? splitLines(form.keyFeatures) : promptFeatures.length ? promptFeatures : splitLines(form.keyFeatures),
     vibe: customVibe ? form.vibe.trim() : vibeFromPrompt(prompt) || form.vibe.trim(),
-    duration: durationFromPrompt || form.duration,
+    duration: form.duration || durationFromPrompt,
     quality: "preview",
     render: true,
     cache: true

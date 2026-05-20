@@ -454,17 +454,20 @@ def _project_scene(
             "width": width,
             "height": height,
             "fit": "cover",
-            "contrast": 1.12,
-            "brightness": -0.015 if style["stylePreset"] == "red_black_aegis" else 0.0,
+            "contrast": 1.04,
+            "brightness": 0.015,
             "camera": _camera_for(style, scene),
             "animation": {"in": "zoomIn", "out": "fade", "duration": 0.25},
         }
         if media_type == "video":
             trim_start = float((clip or {}).get("highlightStart", 0) or 0)
+            source_duration = float((clip or {}).get("duration", 0) or 0)
+            if source_duration > 0:
+                trim_start = min(trim_start, max(source_duration - duration, 0))
             layer["trimStart"] = trim_start
             layer["trimEnd"] = round(trim_start + duration, 3)
         layers.append(layer)
-        layers.append({"type": "shape", "x": 0, "y": 0, "width": width, "height": height, "color": "#000000", "opacity": 0.22})
+        layers.append({"type": "shape", "x": 0, "y": 0, "width": width, "height": height, "color": "#000000", "opacity": 0.07})
     else:
         layers.append({"type": "animated_background", "color": style["accent"], "opacity": 0.12, "speed": 100, "start": 0, "duration": duration})
         layers.append({"type": "particle", "color": style["secondary"], "opacity": 0.22, "count": 22, "start": 0, "duration": duration})
@@ -588,11 +591,17 @@ def _timings(brief: dict[str, Any]) -> dict[str, dict[str, float]]:
 
 def _showcase_timings(brief: dict[str, Any], features: list[str]) -> dict[str, dict[str, float]]:
     total = float(brief["duration"])
-    feature_count = max(1, len(features[:5]) or 3)
-    intro = min(3.5, max(2.2, total * 0.07))
-    cta = min(3.5, max(2.2, total * 0.06))
-    result = min(6.0, max(3.0, total * 0.10))
-    feature = max(total - intro - result - cta, feature_count * 2.0)
+    intro = min(3.5, max(1.4, total * 0.10))
+    cta = min(3.5, max(1.2, total * 0.08))
+    result = min(6.0, max(1.6, total * 0.12))
+    reserved = intro + result + cta
+    max_reserved = max(total * 0.42, min(total - 0.8, reserved))
+    if reserved > max_reserved and reserved > 0:
+        scale = max_reserved / reserved
+        intro = max(0.8, intro * scale)
+        cta = max(0.8, cta * scale)
+        result = max(0.8, result * scale)
+    feature = max(total - intro - result - cta, 0.8)
     cursor = 0.0
     timings = {
         "intro": {"start": cursor, "end": cursor + intro, "duration": intro},
@@ -611,9 +620,11 @@ def _showcase_timings(brief: dict[str, Any], features: list[str]) -> dict[str, d
 
 def _split_section(prefix: str, timing: dict[str, float], features: list[str], role: str, caption_fn: Any) -> list[dict[str, Any]]:
     clean = features[:5] or ["Clear value", "Simple workflow", "Fast result"]
-    duration = timing["duration"] / len(clean)
+    scene_count = max(len(clean), min(10, int((timing["duration"] + 5.999) // 6)))
+    duration = timing["duration"] / scene_count
     scenes = []
-    for index, feature in enumerate(clean):
+    for index in range(scene_count):
+        feature = clean[index % len(clean)]
         start = round(timing["start"] + index * duration, 3)
         end = round(timing["start"] + (index + 1) * duration, 3)
         scenes.append(_scene(f"{prefix}_{index + 1}", prefix, {"start": start, "end": end, "duration": round(end - start, 3)}, _fit_title(feature), caption_fn(feature), "media", role=role))
@@ -776,8 +787,18 @@ def _select_media(assets_folder: Path | None, *, output_dir: Path, scene_duratio
     warnings: list[str] = []
     selected: list[dict[str, Any]] = []
     try:
-        report = select_highlights(assets_folder, scene_duration=scene_duration, max_clips=max_clips, output_path=output_dir / "clip_selection.json")
-        selected = _expand_selected_segments(report.get("selected", []), max_clips=max_clips, scene_duration=scene_duration)
+        report = select_highlights(assets_folder, scene_duration=scene_duration, max_clips=max_clips)
+        raw_selected = report.get("selected", [])
+        selected = _expand_selected_segments(raw_selected, max_clips=max_clips, scene_duration=scene_duration)
+        report["rawSelectedClipCount"] = len(raw_selected)
+        report["selectedClipCount"] = len(selected)
+        report["selected"] = selected
+        report["expandedSegments"] = selected
+        report["untrimmedSourceSupport"] = {
+            "enabled": True,
+            "reason": "Long OBS/Streamlabs captures are sampled into multiple non-destructive trimStart/trimEnd segments.",
+        }
+        _write_json(output_dir / "clip_selection.json", report)
         warnings.extend(report.get("warnings", []))
     except Exception as exc:
         warnings.append(f"Video highlight selection skipped: {exc}")
@@ -813,7 +834,7 @@ def _candidate_starts_for_clip(clip: dict[str, Any], scene_duration: float) -> l
         quarters = [duration * 0.18, duration * 0.34, duration * 0.50, duration * 0.66, duration * 0.82]
         raw_candidates.extend(time - scene_duration / 2 for time in quarters)
     if duration > scene_duration * 4:
-        early_cutoff = min(max(scene_duration, 8.0), duration * 0.08)
+        early_cutoff = max(8.0, min(duration * 0.08, 30.0))
         later_candidates = [candidate for candidate in raw_candidates if candidate >= early_cutoff]
         if later_candidates:
             raw_candidates = later_candidates
@@ -1005,9 +1026,13 @@ def _style_for(mode: str, tone: str, style: str | None, idea: str) -> str:
 def _theme(style: str, tone: str, idea: str) -> dict[str, str]:
     lower = idea.lower()
     tokens = _word_tokens(lower)
-    if style == "blue_black_cyber" or ("blue" in tokens and ("black" in tokens or "cyber" in tokens)):
+    if style == "blue_black_cyber":
         return {"background": "#020617", "accent": "#38bdf8", "secondary": "#dbeafe"}
-    if style == "red_black_aegis" or ("red" in tokens and "black" in tokens):
+    if style == "red_black_aegis":
+        return {"background": "#050000", "accent": "#ef4444", "secondary": "#f8fafc"}
+    if "blue" in tokens and ("black" in tokens or "cyber" in tokens):
+        return {"background": "#020617", "accent": "#38bdf8", "secondary": "#dbeafe"}
+    if "red" in tokens and "black" in tokens:
         return {"background": "#050000", "accent": "#ef4444", "secondary": "#f8fafc"}
     if style == "gaming_montage" or tone == "aggressive":
         return {"background": "#050000", "accent": "#f97316", "secondary": "#ef4444"}
@@ -1134,7 +1159,7 @@ def _apply_music_sync(timeline: list[dict[str, Any]], music_sync: dict[str, Any]
 
 def _media_scene_duration(plan: dict[str, Any]) -> float:
     media = [float(scene["duration"]) for scene in plan["scenePlan"] if scene.get("mediaRole") != "title_card"]
-    return max(min(sum(media) / max(len(media), 1), 5.0), 1.5)
+    return max(min(sum(media) / max(len(media), 1), 8.0), 1.5)
 
 
 def _media_scene_count(plan: dict[str, Any]) -> int:

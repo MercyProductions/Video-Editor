@@ -21,13 +21,13 @@ STYLE_PRESETS: dict[str, dict[str, Any]] = {
     "red_black_aegis": {
         "background": "#050000",
         "text": {"color": "#ef4444", "strokeColor": "#000000", "strokeWidth": 3, "shadowColor": "#000000"},
-        "media": {"contrast": 1.16, "brightness": -0.02},
+        "media": {"contrast": 1.07, "brightness": 0.01},
         "transition": {"type": "fadeToBlack", "duration": 0.35},
     },
     "blue_black_cyber": {
         "background": "#020617",
         "text": {"color": "#38bdf8", "strokeColor": "#000000", "strokeWidth": 3, "shadowColor": "#000000"},
-        "media": {"contrast": 1.12, "brightness": -0.01},
+        "media": {"contrast": 1.06, "brightness": 0.014},
         "transition": {"type": "crossfade", "duration": 0.38},
     },
     "vaporwave": {
@@ -45,7 +45,7 @@ STYLE_PRESETS: dict[str, dict[str, Any]] = {
     "horror_glitch": {
         "background": "#020202",
         "text": {"color": "#f8fafc", "strokeColor": "#7f1d1d", "strokeWidth": 4, "shadowColor": "#000000"},
-        "media": {"contrast": 1.35, "brightness": -0.08, "blur": 0.2},
+        "media": {"contrast": 1.22, "brightness": -0.025, "blur": 0.2},
         "transition": {"type": "fadeToBlack", "duration": 0.22},
         "effects": ["shake"],
     },

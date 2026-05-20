@@ -287,7 +287,7 @@ def run_beginner_auto_template(
         logo_path=logo_path.resolve() if logo_path else None,
         duration=duration,
         tone=preset.tone,
-        style=_style_for_beginner_vibe(desired_vibe, preset.style),
+        style=_style_for_beginner_vibe(f"{desired_vibe} {video_goal}", preset.style),
         approved=render and quality == "final",
         render=render,
         quality=quality,

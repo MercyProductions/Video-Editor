@@ -8,20 +8,20 @@ from renderer.filters import ffmpeg_color, filter_path, fmt
 
 EFFECT_GRAPH_PRESETS: dict[str, list[dict[str, Any]]] = {
     "cinematic_polish": [
-        {"type": "color_grade", "contrast": 1.08, "brightness": -0.015, "saturation": 1.08},
-        {"type": "vignette", "intensity": 0.32},
-        {"type": "sharpen", "amount": 0.35},
+        {"type": "color_grade", "contrast": 1.04, "brightness": 0.018, "saturation": 1.04},
+        {"type": "vignette", "intensity": 0.14},
+        {"type": "sharpen", "amount": 0.22},
     ],
     "premium_red_black": [
-        {"type": "color_grade", "contrast": 1.16, "brightness": -0.035, "saturation": 1.12},
-        {"type": "tint", "color": "#ef4444", "opacity": 0.08},
-        {"type": "vignette", "intensity": 0.42},
-        {"type": "glow", "amount": 0.32},
+        {"type": "color_grade", "contrast": 1.07, "brightness": 0.01, "saturation": 1.06},
+        {"type": "tint", "color": "#ef4444", "opacity": 0.035},
+        {"type": "vignette", "intensity": 0.16},
+        {"type": "glow", "amount": 0.14},
     ],
     "soft_luxury": [
-        {"type": "color_grade", "contrast": 1.05, "brightness": 0.015, "saturation": 0.95},
-        {"type": "tint", "color": "#f5d46b", "opacity": 0.06},
-        {"type": "vignette", "intensity": 0.24},
+        {"type": "color_grade", "contrast": 1.03, "brightness": 0.02, "saturation": 0.98},
+        {"type": "tint", "color": "#f5d46b", "opacity": 0.025},
+        {"type": "vignette", "intensity": 0.12},
     ],
 }
 
