@@ -31,7 +31,7 @@ import {
   ZoomIn,
   ZoomOut
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   addAssetLayerToScene,
   addAssetToFirstScene,
@@ -63,7 +63,23 @@ import {
   updateSceneTimingAdvanced
 } from "./lib/project";
 
-type Tab = "beginner" | "json" | "timeline" | "preview" | "assets" | "director" | "storyboard" | "workflow" | "product";
+type Tab =
+  | "home"
+  | "editor"
+  | "aiStudio"
+  | "captionsMode"
+  | "templatesMode"
+  | "exportMode"
+  | "diagnostics"
+  | "beginner"
+  | "json"
+  | "timeline"
+  | "preview"
+  | "assets"
+  | "director"
+  | "storyboard"
+  | "workflow"
+  | "product";
 type AppModal = "import" | "ai" | "templates" | "export" | "settings" | "help" | "json" | "logs" | null;
 type RenderJob = {
   runId: string;
@@ -310,8 +326,8 @@ function App() {
   const [projectText, setProjectText] = useState(() => formatProject(blankProject()));
   const [projectPath, setProjectPath] = useState<string | null>(null);
   const [recent, setRecent] = useState<RecentProject[]>([]);
-  const [uiMode, setUiMode] = useState<"beginner" | "advanced">("beginner");
-  const [activeTab, setActiveTab] = useState<Tab>("beginner");
+  const [uiMode, setUiMode] = useState<"beginner" | "advanced">("advanced");
+  const [activeTab, setActiveTab] = useState<Tab>("home");
   const [status, setStatus] = useState("Ready");
   const [validation, setValidation] = useState<EngineResult | null>(null);
   const [assets, setAssets] = useState<AssetCheck[]>([]);
@@ -1648,7 +1664,7 @@ function App() {
               onResume={async () => setRenderQueueItems(await window.ave.resumeRenderQueue())}
               onCancelActive={async (runId) => setRenderQueueItems(await window.ave.cancelRenderJob({ runId }))}
               onPrioritizeActive={async (runId) => setRenderQueueItems(await window.ave.prioritizeRenderJob({ runId, priority: 50 }))}
-              onPreviewPartial={(sceneId) => { void (sceneId ? previewCollaborationScene(sceneId) : Promise.resolve(setActiveTab("preview"))); }}
+              onPreviewPartial={(sceneId) => { void (sceneId ? previewCollaborationScene(sceneId) : Promise.resolve(setActiveTab("editor"))); }}
             />
           )}
         </div>
@@ -1678,7 +1694,7 @@ function App() {
                 setProjectPath(file.path);
                 setProjectText(file.text);
                 setUiMode("advanced");
-                setActiveTab("preview");
+                setActiveTab("editor");
               }}
               onTemplate={createFromTemplate}
             />
@@ -1687,15 +1703,15 @@ function App() {
 
         <section className="center-stage">
           <nav className="workflow-tabs">
-            <button className={activeTab === "beginner" ? "active" : ""} onClick={() => { setUiMode("beginner"); setActiveTab("beginner"); }}><Sparkles size={15} /> Quick Create</button>
+            <button className={activeTab === "home" ? "active" : ""} onClick={() => { setUiMode("advanced"); setActiveTab("home"); }}><LayoutTemplate size={15} /> Home</button>
             {uiMode === "advanced" && (
               <>
-                <button className={activeTab === "preview" || activeTab === "timeline" ? "active" : ""} onClick={() => setActiveTab("preview")}><MonitorPlay size={15} /> Edit</button>
-                <button className={activeTab === "director" || activeTab === "storyboard" ? "active" : ""} onClick={() => setActiveTab("director")}><Bot size={15} /> AI Studio</button>
-                <button onClick={() => { setActiveTab("preview"); setStatus("Caption review controls are in the preview editor."); }}><Captions size={15} /> Captions</button>
-                <button className={activeTab === "beginner" ? "active" : ""} onClick={() => setAppModal("templates")}><LayoutTemplate size={15} /> Templates</button>
-                <button className={activeTab === "product" ? "active" : ""} onClick={() => { setActiveTab("product"); setRightRailOpen(true); }}><Download size={15} /> Export</button>
-                <button className={activeTab === "workflow" ? "active" : ""} onClick={() => setActiveTab("workflow")}><Clock size={15} /> Logs</button>
+                <button className={["editor", "preview", "timeline", "assets"].includes(activeTab) ? "active" : ""} onClick={() => setActiveTab("editor")}><MonitorPlay size={15} /> Editor</button>
+                <button className={["aiStudio", "director", "storyboard"].includes(activeTab) ? "active" : ""} onClick={() => setActiveTab("aiStudio")}><Bot size={15} /> AI Studio</button>
+                <button className={activeTab === "captionsMode" ? "active" : ""} onClick={() => setActiveTab("captionsMode")}><Captions size={15} /> Captions</button>
+                <button className={activeTab === "templatesMode" || activeTab === "beginner" ? "active" : ""} onClick={() => setActiveTab("templatesMode")}><LayoutTemplate size={15} /> Templates</button>
+                <button className={activeTab === "exportMode" || activeTab === "product" ? "active" : ""} onClick={() => { setActiveTab("exportMode"); setRightRailOpen(true); }}><Download size={15} /> Export</button>
+                <button className={["diagnostics", "workflow", "json"].includes(activeTab) ? "active" : ""} onClick={() => setActiveTab("diagnostics")}><Clock size={15} /> Logs / Diagnostics</button>
                 <button onClick={() => setAppModal("json")}><FileJson size={15} /> JSON</button>
                 {finalPreflightReport && (
                   <button
@@ -1710,6 +1726,183 @@ function App() {
               </>
             )}
           </nav>
+
+          {activeTab === "home" && (
+            <ProjectHub
+              projectTitle={projectTitle}
+              recent={recent}
+              beginnerTemplates={beginnerTemplates}
+              renderQueueItems={renderQueueItems}
+              onNewProject={() => { setProjectText(formatProject(blankProject())); setProjectPath(null); setUiMode("advanced"); setActiveTab("editor"); }}
+              onOpenProject={openProject}
+              onImport={importAssets}
+              onTemplate={() => setActiveTab("templatesMode")}
+              onAI={() => setActiveTab("aiStudio")}
+              onBeginner={() => { setUiMode("beginner"); setActiveTab("beginner"); }}
+              onOpenRecent={async (path) => {
+                const file = await window.ave.readProject(path);
+                setProjectPath(file.path);
+                setProjectText(file.text);
+                setUiMode("advanced");
+                setActiveTab("editor");
+              }}
+            />
+          )}
+          {activeTab === "editor" && (
+            <EditorMode
+              project={project || null}
+              assets={assets}
+              assetReport={assetReport}
+              previewPath={previewPath}
+              realtimePreview={realtimePreview}
+              interactivePreview={interactivePreview}
+              previewTimeSeconds={previewTimeSeconds}
+              setPreviewTimeSeconds={setPreviewTimeSeconds}
+              previewQualityMode={previewQualityMode}
+              setPreviewQualityMode={setPreviewQualityMode}
+              previewScope={previewScope}
+              setPreviewScope={setPreviewScope}
+              previewSceneId={previewSceneId}
+              setPreviewSceneId={setPreviewSceneId}
+              preset={preset}
+              exportFormat={exportFormat}
+              qualityReport={qualityReport}
+              onRealtimePreview={generateRealtimePreview}
+              onInteractivePreview={generateInteractivePreview}
+              onProjectChange={updateProject}
+              onProjectPreviewChange={updateProjectAndRefreshPreview}
+              onImport={importAssets}
+              onAnalyze={runAssetIntelligence}
+              onDropAsset={(asset) => project && updateProject(addAssetToFirstScene(project, asset))}
+            />
+          )}
+          {activeTab === "aiStudio" && (
+            <AiStudioMode
+              prompt={prompt}
+              setPrompt={setPrompt}
+              contentMode={contentMode}
+              setContentMode={setContentMode}
+              contentTone={contentTone}
+              setContentTone={setContentTone}
+              generationReview={generationReview}
+              generationLocks={generationLocks}
+              notes={aiNotes}
+              directorGoal={directorGoal}
+              setDirectorGoal={setDirectorGoal}
+              directorReport={directorReport}
+              storyboard={storyboard}
+              onGenerate={generateFromPrompt}
+              onYouTubeShort={generateYouTubeShort}
+              onContentGenerate={() => generateContentMode("full")}
+              onAutonomousPipeline={runAutonomousPipeline}
+              onContentRegenerate={(target) => generateContentMode(target)}
+              onContentApprove={(section, statusValue) => approveGeneratedPlan(section, statusValue)}
+              onContentLock={lockGenerationSection}
+              onExplain={() => project && setAiNotes(explainProject(project))}
+              onRepair={repair}
+              onDirector={runDirector}
+              onSuggestTransitions={() => project && updateProject(suggestBetterTransitions(project))}
+              onAddScene={() => project && updateProject(addScene(project))}
+              onCaptions={generateCaptionsFromTranscript}
+              onResolveBroll={resolveBroll}
+              onStoryboard={buildStoryboard}
+              onAnalyzeAssets={runAssetIntelligence}
+            />
+          )}
+          {activeTab === "captionsMode" && (
+            <CaptionsMode
+              project={project || null}
+              onAutoCaption={generateCaptionsFromTranscript}
+              onPreview={() => setActiveTab("editor")}
+              onStyle={(style) => setStatus(`Caption style preset selected: ${style}`)}
+              onBurnIn={() => setStatus("Burn-in captions are controlled by caption layers in the JSON timeline.")}
+            />
+          )}
+          {activeTab === "templatesMode" && (
+            <TemplatesMode
+              beginnerTemplates={beginnerTemplates}
+              templates={engine?.templates || []}
+              onBeginnerTemplate={(template) => { setBeginnerForm((form) => ({ ...form, template })); setUiMode("beginner"); setActiveTab("beginner"); }}
+              onTemplate={createFromTemplate}
+            />
+          )}
+          {activeTab === "exportMode" && (
+            <ExportMode
+              preset={preset}
+              setPreset={setPreset}
+              exportFormat={exportFormat}
+              setExportFormat={setExportFormat}
+              quality={quality}
+              setQuality={setQuality}
+              cache={useCache}
+              setCache={setUseCache}
+              resume={resume}
+              setResume={setResume}
+              gpu={gpu}
+              setGpu={setGpu}
+              logs={renderLogs}
+              renderQueueItems={renderQueueItems}
+              finalPreflight={finalPreflightReport}
+              project={project || null}
+              onPreflight={() => { void runFinalPreflight(true); }}
+              onRepairPreflight={(mode, issueId) => repairFinalPreflight(mode, issueId)}
+              onPreview={() => render("Preview render", "preview")}
+              onFinal={() => render("Final render", "final")}
+              onPauseQueue={async () => setRenderQueueItems(await window.ave.pauseRenderQueue())}
+              onResumeQueue={async () => setRenderQueueItems(await window.ave.resumeRenderQueue())}
+              onCancelJob={async (runId) => setRenderQueueItems(await window.ave.cancelRenderJob({ runId }))}
+              onRetryJob={async (runId) => setRenderQueueItems(await window.ave.retryRenderJob({ runId }))}
+              onOpenOutput={() => window.ave.openOutputFolder()}
+            />
+          )}
+          {activeTab === "diagnostics" && (
+            <DiagnosticsMode
+              projectText={projectText}
+              projectPath={projectPath}
+              engineReady={Boolean(engine)}
+              validation={validation}
+              onJsonChange={setProjectText}
+              onEditorMount={onEditorMount}
+              logs={renderLogs}
+              activityFeed={activityFeed}
+              appError={appError}
+              workflow={
+                <WorkflowPane
+                  projectPath={projectPath}
+                  history={history}
+                  plugins={plugins}
+                  renderQueueItems={renderQueueItems}
+                  onExportPackage={async () => {
+                    const result = await window.ave.exportPackage({ text: projectText, projectPath });
+                    setStatus(result.ok ? `Package exported: ${result.path}` : result.stdout || "Package export canceled");
+                  }}
+                  onOpenPackage={async () => {
+                    const file = await window.ave.openPackage();
+                    if (!file) return;
+                    setProjectPath(file.path);
+                    setProjectText(file.text);
+                    setStatus(`Opened package project ${file.name}`);
+                  }}
+                  onRollback={async (versionId) => {
+                    if (!projectPath) return;
+                    const file = await window.ave.rollbackHistory({ projectPath, versionId });
+                    setProjectText(file.text);
+                    setStatus(`Rolled back to ${versionId}`);
+                  }}
+                  onRefreshHistory={async () => projectPath && setHistory(await window.ave.listHistory({ projectPath }))}
+                  onPauseQueue={async () => setRenderQueueItems(await window.ave.pauseRenderQueue())}
+                  onResumeQueue={async () => setRenderQueueItems(await window.ave.resumeRenderQueue())}
+                  onCancelJob={async (runId) => setRenderQueueItems(await window.ave.cancelRenderJob({ runId }))}
+                  onRetryJob={async (runId) => setRenderQueueItems(await window.ave.retryRenderJob({ runId }))}
+                  onPrioritizeJob={async (runId, priority) => setRenderQueueItems(await window.ave.prioritizeRenderJob({ runId, priority }))}
+                  onInitPlugin={async (name, type) => {
+                    await window.ave.initPlugin({ name, type });
+                    setPlugins(await window.ave.listPlugins());
+                  }}
+                />
+              }
+            />
+          )}
 
           {activeTab === "beginner" && (
             <BeginnerAutoTemplatePane
@@ -2088,6 +2281,452 @@ function App() {
         {parsed.error && <span className="error">JSON parse error: {parsed.error}</span>}
         {project && <span>{project.timeline?.length || 0} scenes | {Object.keys(project.assets || {}).length} assets | {totalTimelineDuration(project).toFixed(1)}s</span>}
       </footer>
+    </div>
+  );
+}
+
+function ProjectHub({
+  projectTitle,
+  recent,
+  beginnerTemplates,
+  renderQueueItems,
+  onNewProject,
+  onOpenProject,
+  onImport,
+  onTemplate,
+  onAI,
+  onBeginner,
+  onOpenRecent
+}: {
+  projectTitle: string;
+  recent: RecentProject[];
+  beginnerTemplates: BeginnerTemplateCard[];
+  renderQueueItems: RenderQueueItem[];
+  onNewProject: () => void;
+  onOpenProject: () => void;
+  onImport: () => void;
+  onTemplate: () => void;
+  onAI: () => void;
+  onBeginner: () => void;
+  onOpenRecent: (path: string) => void;
+}) {
+  return (
+    <div className="project-hub">
+      <section className="hub-hero">
+        <div>
+          <span className="eyebrow">Local-first editor</span>
+          <h1>{projectTitle}</h1>
+          <p>Create, review, preview, and export from one structured workspace.</p>
+        </div>
+        <div className="hub-actions">
+          <button onClick={onImport}><Import size={17} /> Import video</button>
+          <button onClick={onAI}><Sparkles size={17} /> Ask AI to create video</button>
+          <button onClick={onTemplate}><LayoutTemplate size={17} /> Start from template</button>
+          <button onClick={onBeginner}><MonitorPlay size={17} /> New Auto Video</button>
+          <button onClick={onNewProject}><Plus size={17} /> New project</button>
+          <button onClick={onOpenProject}><FolderOpen size={17} /> Open project</button>
+        </div>
+      </section>
+      <section className="hub-grid">
+        <div className="wide-panel">
+          <h2><Clock size={16} /> Recent Projects</h2>
+          <div className="list">
+            {recent.length === 0 && <span className="muted">Recent projects appear here after opening or saving.</span>}
+            {recent.slice(0, 8).map((item) => (
+              <button className="list-row" key={item.path} onClick={() => onOpenRecent(item.path)}>
+                <strong>{item.name}</strong>
+                <span>{item.path}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="wide-panel">
+          <h2><LayoutTemplate size={16} /> Starter Templates</h2>
+          <div className="template-modal-grid compact">
+            {beginnerTemplates.slice(0, 6).map((template) => (
+              <button key={template.key} onClick={onTemplate}>
+                <strong>{template.name}</strong>
+                <span>{template.platform} / {template.aspectRatio}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="wide-panel">
+          <h2><MonitorPlay size={16} /> Render Queue</h2>
+          <div className="list">
+            {renderQueueItems.length === 0 && <span className="muted">No active renders.</span>}
+            {renderQueueItems.slice(0, 5).map((job) => (
+              <div className="queue-row" key={job.runId}>
+                <span>{job.label}</span>
+                <small className={job.status}>{job.status}</small>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function EditorMode({
+  project,
+  assets,
+  assetReport,
+  previewPath,
+  realtimePreview,
+  interactivePreview,
+  previewTimeSeconds,
+  setPreviewTimeSeconds,
+  previewQualityMode,
+  setPreviewQualityMode,
+  previewScope,
+  setPreviewScope,
+  previewSceneId,
+  setPreviewSceneId,
+  preset,
+  exportFormat,
+  qualityReport,
+  onRealtimePreview,
+  onInteractivePreview,
+  onProjectChange,
+  onProjectPreviewChange,
+  onImport,
+  onAnalyze,
+  onDropAsset
+}: {
+  project: ProjectData | null;
+  assets: AssetCheck[];
+  assetReport: Record<string, unknown> | null;
+  previewPath: string | null;
+  realtimePreview: Record<string, unknown> | null;
+  interactivePreview: InteractivePreviewState | null;
+  previewTimeSeconds: number;
+  setPreviewTimeSeconds: (value: number) => void;
+  previewQualityMode: string;
+  setPreviewQualityMode: (value: string) => void;
+  previewScope: "full" | "scene";
+  setPreviewScope: (value: "full" | "scene") => void;
+  previewSceneId: string;
+  setPreviewSceneId: (value: string) => void;
+  preset: string;
+  exportFormat: "mp4" | "mov" | "mkv" | "webm" | "gif";
+  qualityReport: Record<string, unknown> | null;
+  onRealtimePreview: () => void;
+  onInteractivePreview: () => void;
+  onProjectChange: (project: ProjectData) => void;
+  onProjectPreviewChange: (project: ProjectData) => Promise<void>;
+  onImport: () => void;
+  onAnalyze: () => void;
+  onDropAsset: (asset: ImportedAsset) => void;
+}) {
+  return (
+    <div className="professional-editor">
+      <div className="editor-preview-stack">
+        <PreviewWindow
+          project={project}
+          previewPath={previewPath}
+          realtimePreview={realtimePreview}
+          interactivePreview={interactivePreview}
+          previewTimeSeconds={previewTimeSeconds}
+          setPreviewTimeSeconds={setPreviewTimeSeconds}
+          previewQualityMode={previewQualityMode}
+          setPreviewQualityMode={setPreviewQualityMode}
+          previewScope={previewScope}
+          setPreviewScope={setPreviewScope}
+          previewSceneId={previewSceneId}
+          setPreviewSceneId={setPreviewSceneId}
+          preset={preset}
+          exportFormat={exportFormat}
+          qualityReport={qualityReport}
+          duration={project ? totalTimelineDuration(project) : 0}
+          onRealtimePreview={onRealtimePreview}
+          onInteractivePreview={onInteractivePreview}
+          onProjectChange={onProjectChange}
+          onProjectPreviewChange={onProjectPreviewChange}
+        />
+        {project ? <VisualTimeline project={project} onProjectChange={onProjectChange} /> : <div className="timeline-pane panel"><span className="muted">Import media or open a project to show the timeline.</span></div>}
+      </div>
+      <aside className="media-bin-panel">
+        <AssetLibrary
+          project={project || blankProject()}
+          assets={assets}
+          assetReport={assetReport}
+          onImport={onImport}
+          onAnalyze={onAnalyze}
+          onDropAsset={onDropAsset}
+        />
+      </aside>
+    </div>
+  );
+}
+
+function AiStudioMode({
+  prompt,
+  setPrompt,
+  contentMode,
+  setContentMode,
+  contentTone,
+  setContentTone,
+  generationReview,
+  generationLocks,
+  notes,
+  directorGoal,
+  setDirectorGoal,
+  directorReport,
+  storyboard,
+  onGenerate,
+  onYouTubeShort,
+  onContentGenerate,
+  onAutonomousPipeline,
+  onContentRegenerate,
+  onContentApprove,
+  onContentLock,
+  onExplain,
+  onRepair,
+  onDirector,
+  onSuggestTransitions,
+  onAddScene,
+  onCaptions,
+  onResolveBroll,
+  onStoryboard,
+  onAnalyzeAssets
+}: {
+  prompt: string;
+  setPrompt: (value: string) => void;
+  contentMode: string;
+  setContentMode: (value: string) => void;
+  contentTone: string;
+  setContentTone: (value: string) => void;
+  generationReview: GenerationReviewState | null;
+  generationLocks: string[];
+  notes: string;
+  directorGoal: string;
+  setDirectorGoal: (value: string) => void;
+  directorReport: Record<string, unknown> | null;
+  storyboard: Record<string, unknown> | null;
+  onGenerate: () => void;
+  onYouTubeShort: () => void;
+  onContentGenerate: () => void;
+  onAutonomousPipeline: () => void;
+  onContentRegenerate: (target: string) => void;
+  onContentApprove: (section?: string, statusValue?: string) => void;
+  onContentLock: (section: string) => void;
+  onExplain: () => void;
+  onRepair: () => void;
+  onDirector: () => void;
+  onSuggestTransitions: () => void;
+  onAddScene: () => void;
+  onCaptions: () => void;
+  onResolveBroll: () => void;
+  onStoryboard: () => void;
+  onAnalyzeAssets: () => void;
+}) {
+  return (
+    <div className="mode-page ai-studio-mode">
+      <AiPanel
+        prompt={prompt}
+        setPrompt={setPrompt}
+        contentMode={contentMode}
+        setContentMode={setContentMode}
+        contentTone={contentTone}
+        setContentTone={setContentTone}
+        generationReview={generationReview}
+        generationLocks={generationLocks}
+        notes={notes}
+        onGenerate={onGenerate}
+        onYouTubeShort={onYouTubeShort}
+        onContentGenerate={onContentGenerate}
+        onAutonomousPipeline={onAutonomousPipeline}
+        onContentRegenerate={onContentRegenerate}
+        onContentApprove={onContentApprove}
+        onContentLock={onContentLock}
+        onExplain={onExplain}
+        onRepair={onRepair}
+        onDirector={onDirector}
+        onSuggestTransitions={onSuggestTransitions}
+        onAddScene={onAddScene}
+        onCaptions={onCaptions}
+      />
+      <DirectorWorkspace
+        goal={directorGoal}
+        setGoal={setDirectorGoal}
+        report={directorReport}
+        onRun={onDirector}
+        onResolveBroll={onResolveBroll}
+        onStoryboard={onStoryboard}
+        onAnalyzeAssets={onAnalyzeAssets}
+      />
+      <StoryboardPane storyboard={storyboard} onGenerate={onStoryboard} />
+    </div>
+  );
+}
+
+function CaptionsMode({
+  project,
+  onAutoCaption,
+  onPreview,
+  onStyle,
+  onBurnIn
+}: {
+  project: ProjectData | null;
+  onAutoCaption: () => void;
+  onPreview: () => void;
+  onStyle: (style: string) => void;
+  onBurnIn: () => void;
+}) {
+  const captionLayers = (project?.timeline || []).flatMap((scene) =>
+    (scene.layers || [])
+      .filter((layer) => layer.type === "caption" || layer.type === "captions" || layer.type === "text")
+      .map((layer) => ({ scene: scene.id, layer }))
+  );
+  return (
+    <div className="mode-page captions-mode">
+      <section className="wide-panel">
+        <h2><Captions size={16} /> Caption Workflow</h2>
+        <div className="button-grid">
+          <button onClick={onAutoCaption}><Sparkles size={15} /> Auto-caption</button>
+          <button onClick={onBurnIn}><CheckCircle2 size={15} /> Burn-in captions</button>
+          <button onClick={onPreview}><MonitorPlay size={15} /> Preview captions</button>
+        </div>
+      </section>
+      <section className="wide-panel">
+        <h2>Caption Style Presets</h2>
+        <div className="template-modal-grid compact">
+          {["TikTok bold", "Clean subtitle", "Premium lower third", "Word highlight", "Minimal tech", "High contrast"].map((style) => (
+            <button key={style} onClick={() => onStyle(style)}><strong>{style}</strong><span>local JSON caption style</span></button>
+          ))}
+        </div>
+      </section>
+      <section className="wide-panel">
+        <h2>Subtitle Timing Editor</h2>
+        <div className="list">
+          {captionLayers.length === 0 && <span className="muted">No caption/text layers yet.</span>}
+          {captionLayers.slice(0, 16).map((item, index) => (
+            <div className="inspector-row" key={`${item.scene}-${index}`}>
+              <strong>{item.scene}</strong>
+              <span>{String(item.layer.text || item.layer.captionMode || item.layer.type)}</span>
+              <small>{String(item.layer.start || 0)}s / {String(item.layer.duration || "-")}s</small>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function TemplatesMode({
+  beginnerTemplates,
+  templates,
+  onBeginnerTemplate,
+  onTemplate
+}: {
+  beginnerTemplates: BeginnerTemplateCard[];
+  templates: string[];
+  onBeginnerTemplate: (key: string) => void;
+  onTemplate: (key: string) => void;
+}) {
+  const categories = ["Shorts", "TikTok", "Reels", "Gaming", "Podcast", "Educational", "Product promo"];
+  return (
+    <div className="mode-page templates-mode">
+      <section className="wide-panel">
+        <h2><LayoutTemplate size={16} /> Template Categories</h2>
+        <div className="template-category-grid">
+          {categories.map((category) => <button key={category}>{category}</button>)}
+        </div>
+      </section>
+      <section className="wide-panel">
+        <h2>Premium Auto Templates</h2>
+        <div className="template-modal-grid">
+          {beginnerTemplates.map((template) => (
+            <button key={template.key} onClick={() => onBeginnerTemplate(template.key)}>
+              <strong>{template.name}</strong>
+              <span>{template.platform} / {template.aspectRatio} / {template.pacing}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+      <section className="wide-panel">
+        <h2>JSON Templates</h2>
+        <div className="template-modal-grid compact">
+          {templates.map((template) => (
+            <button key={template} onClick={() => onTemplate(template)}>
+              <strong>{templateLabels[template] || template}</strong>
+              <span>source-of-truth JSON template</span>
+            </button>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ExportMode({
+  project,
+  ...renderProps
+}: Parameters<typeof RenderPanel>[0] & { project: ProjectData | null }) {
+  const settings = project?.project || {};
+  return (
+    <div className="mode-page export-mode">
+      <section className="wide-panel">
+        <h2><Download size={16} /> Export Summary</h2>
+        <div className="metric-grid">
+          <span>resolution <strong>{String(settings.width || "?")}x{String(settings.height || "?")}</strong></span>
+          <span>fps <strong>{String(settings.fps || "?")}</strong></span>
+          <span>duration <strong>{project ? totalTimelineDuration(project).toFixed(1) : "0.0"}s</strong></span>
+          <span>platform <strong>{project?.exportPreset || renderProps.preset}</strong></span>
+        </div>
+      </section>
+      <RenderPanel {...renderProps} />
+    </div>
+  );
+}
+
+function DiagnosticsMode({
+  projectText,
+  engineReady,
+  validation,
+  onJsonChange,
+  onEditorMount,
+  logs,
+  activityFeed,
+  appError,
+  workflow
+}: {
+  projectText: string;
+  projectPath: string | null;
+  engineReady: boolean;
+  validation: EngineResult | null;
+  onJsonChange: (value: string) => void;
+  onEditorMount: OnMount;
+  logs: string[];
+  activityFeed: ProcessingActivity[];
+  appError: string;
+  workflow: ReactNode;
+}) {
+  return (
+    <div className="mode-page diagnostics-mode">
+      <section className="wide-panel">
+        <h2><Clock size={16} /> Logs / Diagnostics</h2>
+        {appError && <p className="error">{appError}</p>}
+        <div className="logs-modal embedded">
+          <pre className="logs">{logs.join("\n") || "No render logs yet."}</pre>
+          <div className="activity-feed">
+            {activityFeed.length === 0 && <span className="muted">No AI/render activity yet.</span>}
+            {activityFeed.map((item) => (
+              <div className={`activity-row ${item.kind}`} key={item.id}>
+                <strong>{activityGlyph(item.kind)}</strong>
+                <span>{item.label}</span>
+                <small>{item.detail || item.time}</small>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+      <details className="wide-panel" open>
+        <summary>JSON timeline viewer</summary>
+        <JsonEditor text={projectText} schemaReady={engineReady} onChange={onJsonChange} onMount={onEditorMount} validation={validation} />
+      </details>
+      <section>{workflow}</section>
     </div>
   );
 }
