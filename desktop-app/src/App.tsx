@@ -100,6 +100,12 @@ type GenerationReviewState = {
   scenes: Array<{ key: string; label: string; caption?: string; status?: string }>;
   reasoning?: string;
 };
+type WorkflowContext = {
+  breadcrumbs: string[];
+  title: string;
+  description: string;
+  meta: string[];
+};
 type BeginnerTemplateCard = {
   key: string;
   name: string;
@@ -297,6 +303,174 @@ const defaultBeginnerForm: BeginnerFormState = {
   vibe: "premium red black cinematic",
   duration: 30
 };
+
+function templateNameFromKey(templateKey: string) {
+  return beginnerTemplates.find((template) => template.key === templateKey)?.name || templateKey.replace(/_/g, " ");
+}
+
+function friendlyPresetName(presetValue: string) {
+  return presetValue
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function workflowContextFor({
+  activeTab,
+  project,
+  projectTitle,
+  projectPath,
+  preset,
+  exportFormat,
+  generationReview,
+  previewSceneId,
+  beginnerForm,
+  preflightBlockingCount,
+  preflightWarningCount
+}: {
+  activeTab: Tab;
+  project: ProjectData | null;
+  projectTitle: string;
+  projectPath: string | null;
+  preset: string;
+  exportFormat: string;
+  generationReview: GenerationReviewState | null;
+  previewSceneId: string;
+  beginnerForm: BeginnerFormState;
+  preflightBlockingCount: number;
+  preflightWarningCount: number;
+}): WorkflowContext {
+  const resolution = project?.project ? `${project.project.width}x${project.project.height}` : "No project loaded";
+  const duration = project ? `${totalTimelineDuration(project).toFixed(1)}s` : "0.0s";
+  const sceneCount = `${project?.timeline?.length || 0} scenes`;
+  const assetCount = `${Object.keys(project?.assets || {}).length} assets`;
+  const sourceState = projectPath ? "Saved project" : "Unsaved project";
+
+  switch (activeTab) {
+    case "home":
+      return {
+        breadcrumbs: ["Project Hub", projectPath ? "Recent Project" : "New Project"],
+        title: "Project Hub",
+        description: "Start, open, import, or hand the first move to AI from one clean launch point.",
+        meta: [sourceState, projectTitle]
+      };
+    case "editor":
+      return {
+        breadcrumbs: ["Editor", previewSceneId ? `Scene ${previewSceneId}` : "Timeline"],
+        title: "Editor Workspace",
+        description: "Preview the generated edit, adjust timing, and keep the timeline visible while you work.",
+        meta: [resolution, duration, sceneCount]
+      };
+    case "preview":
+      return {
+        breadcrumbs: ["Editor", "Preview"],
+        title: "Interactive Preview",
+        description: "Review playback, scrub scenes, and check the edit before committing to final export.",
+        meta: [resolution, duration, preset]
+      };
+    case "timeline":
+      return {
+        breadcrumbs: ["Editor", "Timeline"],
+        title: "Timeline",
+        description: "Inspect scenes, tracks, captions, transitions, and timing from the JSON-backed edit.",
+        meta: [sceneCount, duration, `${project?.project?.fps || "?"} fps`]
+      };
+    case "assets":
+      return {
+        breadcrumbs: ["Editor", "Media Bin"],
+        title: "Media Bin",
+        description: "Review imported videos, images, audio, generated assets, and missing media warnings.",
+        meta: [assetCount, sourceState]
+      };
+    case "aiStudio":
+      return {
+        breadcrumbs: ["AI Studio", generationReview ? "Generated Plan" : "Prompt"],
+        title: generationReview ? "Generated Plan" : "AI Studio",
+        description: generationReview
+          ? "Review the hook, script, scenes, captions, and reasoning before applying changes."
+          : "Generate or improve an edit plan while keeping the project JSON as the source of truth.",
+        meta: [generationReview ? `${generationReview.scenes.length} proposed scenes` : "Ready for prompt", generationReview?.style || "Style selectable"]
+      };
+    case "director":
+      return {
+        breadcrumbs: ["AI Studio", "Director"],
+        title: "AI Director",
+        description: "Ask for pacing, captions, transitions, or scene improvements with explainable changes.",
+        meta: [sceneCount, duration]
+      };
+    case "storyboard":
+      return {
+        breadcrumbs: ["AI Studio", "Storyboard"],
+        title: "Storyboard",
+        description: "Review scene summaries, thumbnails, timing, and transition intent before rendering.",
+        meta: [sceneCount, duration]
+      };
+    case "captionsMode":
+      return {
+        breadcrumbs: ["Captions", "Subtitle Timing"],
+        title: "Captions",
+        description: "Generate, style, and review captions for readability and platform-safe placement.",
+        meta: [sceneCount, duration]
+      };
+    case "templatesMode":
+      return {
+        breadcrumbs: ["Templates", "Template Picker"],
+        title: "Templates",
+        description: "Choose a focused starting point for Shorts, TikTok, tutorials, product promos, and more.",
+        meta: ["Beginner-safe presets", "JSON templates"]
+      };
+    case "beginner":
+      return {
+        breadcrumbs: ["Templates", templateNameFromKey(beginnerForm.template)],
+        title: "Beginner Auto Video",
+        description: "Use media, a template, and simple product details to generate the JSON edit behind the scenes.",
+        meta: [beginnerForm.targetPlatform, `${beginnerForm.duration}s`, beginnerForm.vibe || "Default vibe"]
+      };
+    case "exportMode":
+      return {
+        breadcrumbs: ["Export", `${friendlyPresetName(preset)} ${resolution}`],
+        title: "Export",
+        description: "Run preflight, render preview or final output, and package the video for upload.",
+        meta: [exportFormat.toUpperCase(), duration, preflightBlockingCount ? `${preflightBlockingCount} blocking issues` : `${preflightWarningCount} warnings`]
+      };
+    case "product":
+      return {
+        breadcrumbs: ["Export", "Delivery Package"],
+        title: "Product Delivery",
+        description: "Create posting packages, variants, repurposed versions, thumbnails, and reusable settings.",
+        meta: [exportFormat.toUpperCase(), preset, duration]
+      };
+    case "diagnostics":
+      return {
+        breadcrumbs: ["Logs / Diagnostics", "Render Logs"],
+        title: "Logs / Diagnostics",
+        description: "Inspect AI activity, render logs, JSON, recovery tools, and technical details without crowding editing.",
+        meta: [sceneCount, assetCount]
+      };
+    case "json":
+      return {
+        breadcrumbs: ["Logs / Diagnostics", "JSON Timeline Viewer"],
+        title: "Timeline JSON",
+        description: "Advanced view for editing the project source directly.",
+        meta: [sourceState, sceneCount]
+      };
+    case "workflow":
+      return {
+        breadcrumbs: ["Logs / Diagnostics", "Workflow Tools"],
+        title: "Workflow Automation",
+        description: "Review local production workflow helpers, profiles, automation hooks, and reuse tools.",
+        meta: [sourceState, duration]
+      };
+    default:
+      return {
+        breadcrumbs: ["Editor", "Workspace"],
+        title: "Workspace",
+        description: "Use the focused workflow tabs to move through editing, AI, captions, templates, export, and diagnostics.",
+        meta: [resolution, duration]
+      };
+  }
+}
 
 const idleProcessingState: ProcessingState = {
   isActive: false,
@@ -1616,6 +1790,19 @@ function App() {
   const projectTitle = project
     ? String(project.metadata?.title || project.metadata?.name || projectPath?.split(/[\\/]/).pop() || "Untitled Project")
     : "Untitled Project";
+  const workflowContext = workflowContextFor({
+    activeTab,
+    project: project || null,
+    projectTitle,
+    projectPath,
+    preset,
+    exportFormat,
+    generationReview,
+    previewSceneId,
+    beginnerForm,
+    preflightBlockingCount: preflightBlockingIssues.length,
+    preflightWarningCount
+  });
 
   return (
     <div className={`app-shell theme-${settings.theme} mode-${uiMode} ${leftRailOpen ? "" : "left-rail-collapsed"} ${rightRailOpen ? "" : "right-rail-collapsed"}`}>
@@ -1726,6 +1913,8 @@ function App() {
               </>
             )}
           </nav>
+
+          <WorkflowContextHeader context={workflowContext} />
 
           {activeTab === "home" && (
             <ProjectHub
@@ -2282,6 +2471,32 @@ function App() {
         {project && <span>{project.timeline?.length || 0} scenes | {Object.keys(project.assets || {}).length} assets | {totalTimelineDuration(project).toFixed(1)}s</span>}
       </footer>
     </div>
+  );
+}
+
+function WorkflowContextHeader({ context }: { context: WorkflowContext }) {
+  return (
+    <header className="context-header">
+      <nav className="breadcrumb-row" aria-label="Workflow breadcrumb">
+        {context.breadcrumbs.map((crumb, index) => (
+          <span key={`${crumb}-${index}`} className={index === context.breadcrumbs.length - 1 ? "current" : undefined}>
+            {index > 0 && <span className="breadcrumb-separator">/</span>}
+            {crumb}
+          </span>
+        ))}
+      </nav>
+      <div className="context-title-row">
+        <div>
+          <h2>{context.title}</h2>
+          <p>{context.description}</p>
+        </div>
+        {context.meta.length > 0 && (
+          <div className="context-meta" aria-label="Current workflow details">
+            {context.meta.map((item) => <span key={item}>{item}</span>)}
+          </div>
+        )}
+      </div>
+    </header>
   );
 }
 
