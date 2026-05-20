@@ -80,7 +80,20 @@ type Tab =
   | "storyboard"
   | "workflow"
   | "product";
-type AppModal = "import" | "ai" | "templates" | "export" | "settings" | "help" | "json" | "logs" | null;
+type AppModal =
+  | "import"
+  | "ai"
+  | "aiReview"
+  | "templates"
+  | "captionStyle"
+  | "export"
+  | "renderProgress"
+  | "errorRecovery"
+  | "settings"
+  | "help"
+  | "json"
+  | "logs"
+  | null;
 type RenderJob = {
   runId: string;
   label: string;
@@ -128,6 +141,11 @@ type BeginnerFormState = {
   keyFeatures: string;
   vibe: string;
   duration: number;
+};
+type QuickCreateState = {
+  mediaFile: string | null;
+  platform: string;
+  style: string;
 };
 type BeginnerSmartDefaults = {
   aspectRatio: string;
@@ -302,6 +320,12 @@ const defaultBeginnerForm: BeginnerFormState = {
   keyFeatures: "Missing runtimes\nAnti-cheat conflicts\nWindows security settings\nLaunch blockers",
   vibe: "premium red black cinematic",
   duration: 30
+};
+
+const defaultQuickCreate: QuickCreateState = {
+  mediaFile: null,
+  platform: "shorts",
+  style: "cinematic"
 };
 
 function templateNameFromKey(templateKey: string) {
@@ -556,6 +580,8 @@ function App() {
   const [creatorIdentity, setCreatorIdentity] = useState<Record<string, unknown> | null>(null);
   const [evolutionReport, setEvolutionReport] = useState<Record<string, unknown> | null>(null);
   const [beginnerForm, setBeginnerForm] = useState<BeginnerFormState>(defaultBeginnerForm);
+  const [quickCreate, setQuickCreate] = useState<QuickCreateState>(defaultQuickCreate);
+  const [guidedStep, setGuidedStep] = useState(1);
   const [beginnerSummary, setBeginnerSummary] = useState<Record<string, unknown> | null>(null);
   const [frictionReport, setFrictionReport] = useState<FrictionReport | null>(null);
   const [adaptiveMemory, setAdaptiveMemory] = useState<AdaptiveWorkflowMemory | null>(null);
@@ -1071,9 +1097,10 @@ function App() {
     }
   }
 
-  async function generateBeginnerAutoVideo(renderQuality: "preview" | "final") {
+  async function generateBeginnerAutoVideo(renderQuality: "preview" | "final", formOverride?: BeginnerFormState) {
     await productAction("Beginner Auto Video", async () => {
-      const quick = beginnerRequestFromForm(beginnerForm);
+      const formToUse = formOverride || beginnerForm;
+      const quick = beginnerRequestFromForm(formToUse);
       updateProcessing({
         currentStage: "Generating auto-template plan",
         activeTask: quick.productName,
@@ -1116,7 +1143,7 @@ function App() {
           style: quick.vibe,
           pacing: selectedPacingForTemplate(quick.template),
           mediaPath: quick.mediaFile || quick.assetFolder || quick.imageFolder || null,
-          prompt: beginnerForm.quickPrompt,
+          prompt: formToUse.quickPrompt,
           note: renderQuality
         });
         setStatus(renderQuality === "final" ? "Beginner final video rendered" : "Beginner preview video rendered");
@@ -1133,6 +1160,39 @@ function App() {
         setStatus(result.stderr || result.stdout || "Beginner Auto Video failed");
       }
     });
+  }
+
+  async function pickQuickCreateMedia() {
+    const path = await window.ave.beginnerPickMedia();
+    if (!path) return;
+    setQuickCreate((current) => ({ ...current, mediaFile: path }));
+    setBeginnerForm((current) => ({ ...current, mediaFile: path }));
+    void recordAdaptiveEvent({ event: "media_imported", mediaPath: path, note: "quick_create_media" });
+  }
+
+  async function generateQuickCreateEdit() {
+    const nextForm = beginnerFormFromQuickCreate(beginnerForm, quickCreate);
+    setBeginnerForm(nextForm);
+    setUiMode("beginner");
+    setActiveTab("beginner");
+    await generateBeginnerAutoVideo("preview", nextForm);
+  }
+
+  async function guidedImportMedia() {
+    await pickQuickCreateMedia();
+    setGuidedStep(2);
+  }
+
+  function guidedApplyToTimeline() {
+    if (generationReview) {
+      void approveGeneratedPlan("all", "approved");
+      setStatus("AI plan approved and ready for timeline preview");
+    } else {
+      void generateBeginnerAutoVideo("preview");
+    }
+    setUiMode("advanced");
+    setActiveTab("editor");
+    setGuidedStep(6);
   }
 
   async function generateFromPrompt() {
@@ -1818,6 +1878,9 @@ function App() {
           <button title="Import media" onClick={() => setAppModal("import")}><Import size={16} /> Import</button>
           <button title="Export settings and final render" onClick={() => { setRightRailOpen(true); setAppModal("export"); }}><Download size={16} /> Export</button>
           <button title="AI Generate" onClick={() => setAppModal("ai")}><Sparkles size={16} /> AI Generate</button>
+          <button title="Caption style picker" onClick={() => setAppModal("captionStyle")}><Captions size={16} /> Captions</button>
+          {(processing.isActive || renderQueueItems.length > 0) && <button title="Render progress" onClick={() => setAppModal("renderProgress")}><Play size={16} /> Progress</button>}
+          {(appError || preflightBlockingIssues.length > 0 || parsed.error) && <button title="Error recovery" onClick={() => setAppModal("errorRecovery")}><Wand2 size={16} /> Recover</button>}
           <button title="Settings" onClick={() => setAppModal("settings")}><Settings size={16} /> Settings</button>
           <button title="Help and local docs" onClick={() => setAppModal("help")}><CircleHelp size={16} /> Help</button>
         </div>
@@ -1899,7 +1962,6 @@ function App() {
                 <button className={activeTab === "templatesMode" || activeTab === "beginner" ? "active" : ""} onClick={() => setActiveTab("templatesMode")}><LayoutTemplate size={15} /> Templates</button>
                 <button className={activeTab === "exportMode" || activeTab === "product" ? "active" : ""} onClick={() => { setActiveTab("exportMode"); setRightRailOpen(true); }}><Download size={15} /> Export</button>
                 <button className={["diagnostics", "workflow", "json"].includes(activeTab) ? "active" : ""} onClick={() => setActiveTab("diagnostics")}><Clock size={15} /> Logs / Diagnostics</button>
-                <button onClick={() => setAppModal("json")}><FileJson size={15} /> JSON</button>
                 {finalPreflightReport && (
                   <button
                     className={preflightBlockingIssues.length ? "preflight-tab warning" : "preflight-tab"}
@@ -1922,12 +1984,26 @@ function App() {
               recent={recent}
               beginnerTemplates={beginnerTemplates}
               renderQueueItems={renderQueueItems}
+              quickCreate={quickCreate}
+              setQuickCreate={setQuickCreate}
+              guidedStep={guidedStep}
               onNewProject={() => { setProjectText(formatProject(blankProject())); setProjectPath(null); setUiMode("advanced"); setActiveTab("editor"); }}
               onOpenProject={openProject}
               onImport={importAssets}
               onTemplate={() => setActiveTab("templatesMode")}
               onAI={() => setActiveTab("aiStudio")}
               onBeginner={() => { setUiMode("beginner"); setActiveTab("beginner"); }}
+              onQuickPickMedia={pickQuickCreateMedia}
+              onQuickGenerate={() => { void generateQuickCreateEdit(); }}
+              onGuidedImport={guidedImportMedia}
+              onGuidedTemplates={() => { setAppModal("templates"); setGuidedStep(3); }}
+              onGuidedInstructions={() => { setAppModal("ai"); setGuidedStep(4); }}
+              onGuidedReview={() => { setAppModal("aiReview"); setGuidedStep(5); }}
+              onGuidedApply={guidedApplyToTimeline}
+              onGuidedExport={() => { setAppModal("export"); setGuidedStep(6); }}
+              onAdvancedTimeline={() => { setUiMode("advanced"); setActiveTab("editor"); }}
+              onAdvancedJson={() => setAppModal("json")}
+              onAdvancedLogs={() => { setUiMode("advanced"); setActiveTab("diagnostics"); }}
               onOpenRecent={async (path) => {
                 const file = await window.ave.readProject(path);
                 setProjectPath(file.path);
@@ -2399,6 +2475,9 @@ function App() {
         projectText={projectText}
         projectPath={projectPath}
         project={project || null}
+        appError={appError}
+        jsonParseError={parsed.error}
+        processing={processing}
         engineReady={Boolean(engine)}
         validation={validation}
         onJsonChange={setProjectText}
@@ -2430,6 +2509,10 @@ function App() {
         onSuggestTransitions={() => project && updateProject(suggestBetterTransitions(project))}
         onAddScene={() => project && updateProject(addScene(project))}
         onCaptions={generateCaptionsFromTranscript}
+        onCaptionStyle={(style) => {
+          setStatus(`Caption style selected: ${style}. Use Auto-caption or caption layers to apply it to the JSON timeline.`);
+          setAppModal(null);
+        }}
         templates={engine?.templates || []}
         beginnerTemplates={beginnerTemplates}
         onTemplate={createFromTemplate}
@@ -2505,26 +2588,69 @@ function ProjectHub({
   recent,
   beginnerTemplates,
   renderQueueItems,
+  quickCreate,
+  setQuickCreate,
+  guidedStep,
   onNewProject,
   onOpenProject,
   onImport,
   onTemplate,
   onAI,
   onBeginner,
+  onQuickPickMedia,
+  onQuickGenerate,
+  onGuidedImport,
+  onGuidedTemplates,
+  onGuidedInstructions,
+  onGuidedReview,
+  onGuidedApply,
+  onGuidedExport,
+  onAdvancedTimeline,
+  onAdvancedJson,
+  onAdvancedLogs,
   onOpenRecent
 }: {
   projectTitle: string;
   recent: RecentProject[];
   beginnerTemplates: BeginnerTemplateCard[];
   renderQueueItems: RenderQueueItem[];
+  quickCreate: QuickCreateState;
+  setQuickCreate: (value: QuickCreateState | ((value: QuickCreateState) => QuickCreateState)) => void;
+  guidedStep: number;
   onNewProject: () => void;
   onOpenProject: () => void;
   onImport: () => void;
   onTemplate: () => void;
   onAI: () => void;
   onBeginner: () => void;
+  onQuickPickMedia: () => void;
+  onQuickGenerate: () => void;
+  onGuidedImport: () => void;
+  onGuidedTemplates: () => void;
+  onGuidedInstructions: () => void;
+  onGuidedReview: () => void;
+  onGuidedApply: () => void;
+  onGuidedExport: () => void;
+  onAdvancedTimeline: () => void;
+  onAdvancedJson: () => void;
+  onAdvancedLogs: () => void;
   onOpenRecent: (path: string) => void;
 }) {
+  const quickStyles = ["clean", "gaming", "cinematic", "podcast", "educational", "hype"];
+  const quickPlatforms = [
+    ["shorts", "YouTube Short"],
+    ["tiktok", "TikTok"],
+    ["instagram_reels", "Reel"],
+    ["youtube", "Normal Video"]
+  ] as const;
+  const guidedSteps = [
+    ["Import media", onGuidedImport],
+    ["Choose template", onGuidedTemplates],
+    ["AI instructions", onGuidedInstructions],
+    ["Preview AI plan", onGuidedReview],
+    ["Apply to timeline", onGuidedApply],
+    ["Export", onGuidedExport]
+  ] as const;
   return (
     <div className="project-hub">
       <section className="hub-hero">
@@ -2540,6 +2666,54 @@ function ProjectHub({
           <button onClick={onBeginner}><MonitorPlay size={17} /> New Auto Video</button>
           <button onClick={onNewProject}><Plus size={17} /> New project</button>
           <button onClick={onOpenProject}><FolderOpen size={17} /> Open project</button>
+        </div>
+      </section>
+      <section className="creation-paths">
+        <div className="creation-card quick-path">
+          <span className="eyebrow">Path 1</span>
+          <h2><Wand2 size={17} /> Quick Create</h2>
+          <p className="muted">Pick one video, choose platform and style, then generate an edit without touching JSON.</p>
+          <button className="large-action" onClick={onQuickPickMedia}><Video size={16} /> {quickCreate.mediaFile ? "Change video file" : "Select video file"}</button>
+          <small className="path-file" title={quickCreate.mediaFile || ""}>{quickCreate.mediaFile || "No video selected yet"}</small>
+          <label>
+            Platform
+            <select value={quickCreate.platform} onChange={(event) => setQuickCreate((current) => ({ ...current, platform: event.target.value }))}>
+              {quickPlatforms.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <label>
+            Style
+            <select value={quickCreate.style} onChange={(event) => setQuickCreate((current) => ({ ...current, style: event.target.value }))}>
+              {quickStyles.map((style) => <option key={style} value={style}>{style.charAt(0).toUpperCase() + style.slice(1)}</option>)}
+            </select>
+          </label>
+          <button className="primary-create" onClick={onQuickGenerate}><Sparkles size={16} /> Generate Edit</button>
+        </div>
+
+        <div className="creation-card guided-path">
+          <span className="eyebrow">Path 2</span>
+          <h2><ListVideo size={17} /> Guided Create</h2>
+          <p className="muted">A simple six-step flow: media, template, AI instructions, plan review, timeline, export.</p>
+          <div className="guided-step-list">
+            {guidedSteps.map(([label, action], index) => (
+              <button key={label} className={guidedStep >= index + 1 ? "active" : ""} onClick={action}>
+                <strong>{index + 1}</strong>
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="creation-card advanced-path">
+          <span className="eyebrow">Path 3</span>
+          <h2><FileJson size={17} /> Advanced Create</h2>
+          <p className="muted">Manual timeline, JSON editor, full inspector, render/debug logs, and diagnostics stay here.</p>
+          <div className="button-grid compact">
+            <button onClick={onAdvancedTimeline}><MonitorPlay size={15} /> Manual timeline</button>
+            <button onClick={onAdvancedJson}><FileJson size={15} /> JSON editor</button>
+            <button onClick={onAdvancedLogs}><Clock size={15} /> Render/debug logs</button>
+            <button onClick={onBeginner}><Sparkles size={15} /> Beginner auto form</button>
+          </div>
         </div>
       </section>
       <section className="hub-grid">
@@ -3092,6 +3266,9 @@ function EditorModal({
   projectText,
   projectPath,
   project,
+  appError,
+  jsonParseError,
+  processing,
   engineReady,
   validation,
   onJsonChange,
@@ -3123,6 +3300,7 @@ function EditorModal({
   onSuggestTransitions,
   onAddScene,
   onCaptions,
+  onCaptionStyle,
   templates,
   beginnerTemplates,
   onTemplate,
@@ -3162,6 +3340,9 @@ function EditorModal({
   projectText: string;
   projectPath: string | null;
   project: ProjectData | null;
+  appError: string;
+  jsonParseError?: string;
+  processing: ProcessingState;
   engineReady: boolean;
   validation: EngineResult | null;
   onJsonChange: (value: string) => void;
@@ -3193,6 +3374,7 @@ function EditorModal({
   onSuggestTransitions: () => void;
   onAddScene: () => void;
   onCaptions: () => void;
+  onCaptionStyle: (style: string) => void;
   templates: string[];
   beginnerTemplates: BeginnerTemplateCard[];
   onTemplate: (key: string) => void;
@@ -3231,8 +3413,12 @@ function EditorModal({
   const titles: Record<Exclude<AppModal, null>, string> = {
     import: "Import Media",
     ai: "AI Edit Prompt",
+    aiReview: "AI Plan Review",
     templates: "Template Picker",
-    export: "Export Settings",
+    captionStyle: "Caption Style Picker",
+    export: "Export Presets",
+    renderProgress: "Render Progress",
+    errorRecovery: "Error Recovery",
     settings: "Project Settings",
     help: "Help",
     json: "Timeline JSON",
@@ -3282,6 +3468,55 @@ function EditorModal({
               onCaptions={onCaptions}
             />
           )}
+          {modal === "aiReview" && (
+            <div className="review-modal">
+              {generationReview ? (
+                <>
+                  <section className="wide-panel">
+                    <h2><Sparkles size={16} /> Proposed AI Plan</h2>
+                    <p>{generationReview.hook}</p>
+                    <div className="review-meta">
+                      <span>{generationReview.style}</span>
+                      <span>{generationReview.tone}</span>
+                      <span>{generationReview.duration ? `${generationReview.duration}s` : "duration pending"}</span>
+                    </div>
+                  </section>
+                  <section className="wide-panel">
+                    <h2><ListVideo size={16} /> Scene Plan</h2>
+                    <div className="review-scenes">
+                      {generationReview.scenes.map((scene) => (
+                        <button key={scene.key} onClick={() => onContentLock(scene.key)}>
+                          <span>{scene.label}</span>
+                          <small>{scene.caption || scene.status || "needs review"}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                  <section className="wide-panel">
+                    <h2><Bot size={16} /> AI Reasoning</h2>
+                    <p className="muted">{generationReview.reasoning || aiNotes || "Reasoning appears after the AI creates or explains a plan."}</p>
+                    {generationReview.warnings.length > 0 && <p className="error">{generationReview.warnings.join(" | ")}</p>}
+                    <div className="review-actions">
+                      <button onClick={() => onContentApprove("all", "approved")}><CheckCircle2 size={14} /> Approve plan</button>
+                      <button onClick={() => onContentRegenerate("hook")}><RefreshCw size={14} /> Regenerate hook</button>
+                      <button onClick={() => onContentRegenerate("captions")}><Captions size={14} /> Regenerate captions</button>
+                      <button onClick={() => onContentRegenerate("scenes")}><ListVideo size={14} /> Regenerate scenes</button>
+                    </div>
+                  </section>
+                </>
+              ) : (
+                <section className="wide-panel">
+                  <h2><Sparkles size={16} /> No AI plan yet</h2>
+                  <p className="muted">Generate a plan first, then review scenes, captions, timing, style, and warnings here before applying to the timeline.</p>
+                  <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+                  <div className="review-actions">
+                    <button onClick={onContentGenerate}><ListVideo size={15} /> Generate content plan</button>
+                    <button onClick={onGenerate}><Sparkles size={15} /> Prompt to JSON</button>
+                  </div>
+                </section>
+              )}
+            </div>
+          )}
           {modal === "templates" && (
             <div className="template-modal-grid">
               {beginnerTemplates.map((template) => (
@@ -3296,6 +3531,17 @@ function EditorModal({
                   <span>JSON template</span>
                 </button>
               ))}
+            </div>
+          )}
+          {modal === "captionStyle" && (
+            <div className="caption-style-picker">
+              {["TikTok Bold", "Clean Lower Third", "Podcast Subtitles", "Educational Clear", "Cinematic Title", "Gaming Hype"].map((style) => (
+                <button key={style} onClick={() => onCaptionStyle(style)}>
+                  <strong>{style}</strong>
+                  <span>{captionStyleDescription(style)}</span>
+                </button>
+              ))}
+              <button className="span-2" onClick={onCaptions}><Sparkles size={15} /> Auto-generate captions from transcript</button>
             </div>
           )}
           {modal === "export" && (
@@ -3325,6 +3571,81 @@ function EditorModal({
               onRetryJob={onRetryJob}
               onOpenOutput={onOpenOutput}
             />
+          )}
+          {modal === "renderProgress" && (
+            <div className="render-progress-modal">
+              <section className="wide-panel">
+                <h2><Play size={16} /> Active Processing</h2>
+                <div className="progress-line">
+                  <strong>{processing.currentStage}</strong>
+                  <span>{safePercent(processing.progress).toFixed(0)}%</span>
+                </div>
+                <div className="progressbar"><span style={{ width: `${safePercent(processing.progress)}%` }} /></div>
+                <p className="muted">{processing.activeTask}</p>
+              </section>
+              <section className="wide-panel">
+                <h2><Clock size={16} /> Render Queue</h2>
+                <div className="list">
+                  {renderQueueItems.length === 0 && <span className="muted">No active render jobs.</span>}
+                  {renderQueueItems.map((job) => (
+                    <div className="queue-row" key={job.runId}>
+                      <span>{job.label}</span>
+                      <small className={job.status}>{job.status} {Number(job.progressPercent || 0).toFixed(0)}%</small>
+                    </div>
+                  ))}
+                </div>
+                <div className="review-actions">
+                  <button onClick={onPauseQueue}><Pause size={14} /> Pause</button>
+                  <button onClick={onResumeQueue}><Play size={14} /> Resume</button>
+                  <button onClick={onOpenOutput}><FolderOpen size={14} /> Open output folder</button>
+                </div>
+              </section>
+              <section className="wide-panel">
+                <h2>Live Activity</h2>
+                <div className="activity-feed">
+                  {activityFeed.map((item) => (
+                    <div className={`activity-row ${item.kind}`} key={item.id}>
+                      <strong>{activityGlyph(item.kind)}</strong>
+                      <span>{item.label}</span>
+                      <small>{item.detail || item.time}</small>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+          )}
+          {modal === "errorRecovery" && (
+            <div className="error-recovery-modal">
+              <section className="wide-panel">
+                <h2><Wand2 size={16} /> Recovery Summary</h2>
+                {!appError && !jsonParseError && !validation?.stderr && !finalPreflight?.issues?.length && <p className="muted">No active blocking issues detected.</p>}
+                {appError && <p className="error">{appError}</p>}
+                {jsonParseError && <p className="error">JSON parse error: {jsonParseError}</p>}
+                {validation && !validation.ok && <p className="error">{validation.stderr || validation.stdout || "Validation failed"}</p>}
+              </section>
+              {finalPreflight?.issues?.length ? (
+                <section className="wide-panel">
+                  <h2><CheckCircle2 size={16} /> Preflight Issues</h2>
+                  <div className="list">
+                    {finalPreflight.issues.slice(0, 8).map((issue) => (
+                      <div className="queue-row" key={issue.id}>
+                        <span>{issue.message}</span>
+                        <small className={issue.blocking ? "failed" : "running"}>{issue.severity}</small>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+              <section className="wide-panel">
+                <h2>Safe Fixes</h2>
+                <div className="review-actions">
+                  <button onClick={onRepair}><Wand2 size={14} /> Repair JSON</button>
+                  <button onClick={onPreflight}><CheckCircle2 size={14} /> Run preflight</button>
+                  <button onClick={() => onRepairPreflight("safe_all")}><Wand2 size={14} /> Fix safe preflight issues</button>
+                  <button onClick={() => onRepairPreflight("accept_all")}><CheckCircle2 size={14} /> Accept remaining warnings</button>
+                </div>
+              </section>
+            </div>
           )}
           {modal === "settings" && (
             <div className="settings-modal">
@@ -5719,6 +6040,49 @@ function sceneCaptionText(scene: SceneData) {
   if (items[0]?.text) return String(items[0].text);
   const textLayer = scene.layers?.find((layer) => layer.type === "text" || layer.type === "lower_third");
   return String(textLayer?.text || "");
+}
+
+function beginnerFormFromQuickCreate(current: BeginnerFormState, quickCreate: QuickCreateState): BeginnerFormState {
+  const platform = quickCreate.platform || "shorts";
+  const style = quickCreate.style || "cinematic";
+  const template = quickTemplateFor(platform, style);
+  const defaults = templateQuickDefaults(template, platform);
+  const styleLabel = style.charAt(0).toUpperCase() + style.slice(1);
+  const platformLabel = platform === "youtube" ? "Normal Video" : platform === "instagram_reels" ? "Reel" : platform === "tiktok" ? "TikTok" : "YouTube Short";
+  return {
+    ...current,
+    mediaFile: quickCreate.mediaFile || current.mediaFile,
+    template,
+    targetPlatform: platform,
+    vibe: `${style} ${defaults.vibe}`.trim(),
+    duration: current.duration || defaults.duration,
+    quickPrompt: current.quickPrompt.trim()
+      ? current.quickPrompt
+      : `Create a ${platformLabel} in a ${styleLabel} style. Use the selected footage, add readable captions, clean cuts, title cards, and a polished ending.`
+  };
+}
+
+function quickTemplateFor(platform: string, style: string) {
+  const lowerStyle = style.toLowerCase();
+  if (lowerStyle === "gaming") return "gaming_montage";
+  if (lowerStyle === "podcast") return "tutorial_walkthrough";
+  if (lowerStyle === "educational") return "tutorial_walkthrough";
+  if (lowerStyle === "hype") return "youtube_short";
+  if (lowerStyle === "clean") return platform === "youtube" ? "minimal_saas_promo" : "youtube_short";
+  if (platform === "tiktok" || platform === "instagram_reels") return "tiktok_reels_edit";
+  return platform === "youtube" ? "premium_product_showcase" : "youtube_short";
+}
+
+function captionStyleDescription(style: string) {
+  const descriptions: Record<string, string> = {
+    "TikTok Bold": "Large, high-contrast captions for vertical short-form edits.",
+    "Clean Lower Third": "Smaller professional captions placed away from important UI.",
+    "Podcast Subtitles": "Comfortable multi-line subtitles for spoken content.",
+    "Educational Clear": "Readable timing and restrained animation for tutorials.",
+    "Cinematic Title": "Premium title-card style captions with slower emphasis.",
+    "Gaming Hype": "Fast, punchy captions with stronger emphasis words."
+  };
+  return descriptions[style] || "Caption style preset";
 }
 
 function applyAssistantInstruction(project: ProjectData, instruction: string): { project: ProjectData; summary: string } {

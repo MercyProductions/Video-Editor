@@ -2678,6 +2678,108 @@ textarea {
   justify-content: flex-start;
 }
 
+.creation-paths {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.95fr) minmax(320px, 1.15fr) minmax(260px, 0.9fr);
+  gap: 14px;
+}
+
+.creation-card {
+  min-width: 0;
+  border: 1px solid #353128;
+  border-radius: 10px;
+  background: #181713;
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.creation-card h2 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+}
+
+.creation-card p {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.creation-card label {
+  display: grid;
+  gap: 6px;
+  color: #b7afa2;
+  font-size: 12px;
+}
+
+.creation-card select {
+  width: 100%;
+}
+
+.quick-path {
+  border-color: rgba(109, 181, 165, 0.42);
+  background:
+    linear-gradient(135deg, rgba(109, 181, 165, 0.12), transparent 42%),
+    #181713;
+}
+
+.large-action,
+.primary-create {
+  min-height: 42px;
+  justify-content: flex-start;
+}
+
+.primary-create {
+  border-color: #6db5a5;
+  background: #25332f;
+}
+
+.path-file {
+  min-width: 0;
+  color: #b7afa2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guided-step-list {
+  display: grid;
+  gap: 7px;
+}
+
+.guided-step-list button {
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  justify-content: stretch;
+  text-align: left;
+  gap: 8px;
+}
+
+.guided-step-list strong {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #24211b;
+  color: #8ad0c2;
+}
+
+.guided-step-list button.active {
+  border-color: #51655e;
+  background: #202923;
+}
+
+.advanced-path {
+  background:
+    linear-gradient(135deg, rgba(213, 177, 106, 0.1), transparent 48%),
+    #181713;
+}
+
 .hub-grid {
   display: grid;
   grid-template-columns: minmax(280px, 1.2fr) minmax(260px, 0.9fr) minmax(240px, 0.7fr);
@@ -2906,6 +3008,55 @@ textarea {
   font-size: 12px;
 }
 
+.review-modal,
+.render-progress-modal,
+.error-recovery-modal {
+  display: grid;
+  gap: 12px;
+}
+
+.caption-style-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.caption-style-picker button {
+  min-height: 78px;
+  align-items: flex-start;
+  justify-content: center;
+  flex-direction: column;
+  text-align: left;
+}
+
+.caption-style-picker span {
+  color: #b7afa2;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.progress-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #f4f0e8;
+}
+
+.progressbar {
+  height: 9px;
+  overflow: hidden;
+  border: 1px solid #39352d;
+  border-radius: 999px;
+  background: #0d0c0a;
+}
+
+.progressbar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #76d0c2, #d8b66c, #a8584d);
+}
+
 .logs-modal {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 0.7fr);
@@ -2949,6 +3100,10 @@ textarea {
 }
 
 @media (max-width: 1320px) {
+  .creation-paths {
+    grid-template-columns: 1fr;
+  }
+
   .mode-beginner .metric-grid,
   .mode-beginner .smart-defaults,
   .mode-beginner .adaptive-suggestions {
