@@ -2450,6 +2450,253 @@ textarea {
   overflow-x: hidden;
 }
 
+/* Structured editor shell: top nav, categorized left tools, center preview/timeline,
+   right inspector, and modal surfaces for dense advanced tools. */
+.project-chip {
+  min-width: 240px;
+}
+
+.workflow-tabs {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 7px 12px;
+  border-bottom: 1px solid #39352d;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.workflow-tabs button {
+  flex: 0 0 auto;
+  min-height: 29px;
+  white-space: nowrap;
+  padding-inline: 9px;
+}
+
+.workflow-tabs button.active {
+  border-color: #6db5a5;
+  background: #25332f;
+}
+
+.workflow-tabs .preflight-tab {
+  margin-left: auto;
+  border-color: #41564f;
+  color: #bfeee3;
+  background: #17241f;
+}
+
+.workflow-tabs .preflight-tab.warning {
+  border-color: #7a6335;
+  color: #ffe3a3;
+  background: #2a2418;
+}
+
+.editor-sidebar {
+  display: grid;
+  gap: 10px;
+}
+
+.sidebar-action,
+.primary-sidebar-action {
+  width: 100%;
+  min-height: 30px;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.sidebar-action {
+  border-color: transparent;
+  background: transparent;
+  color: #cfc7b8;
+}
+
+.sidebar-action:hover,
+.sidebar-action.active {
+  border-color: #3b514b;
+  background: #202b27;
+  color: #f4f0e8;
+}
+
+.primary-sidebar-action {
+  margin-top: 6px;
+  border-color: #6db5a5;
+  background: #22332e;
+}
+
+.compact-section .panel-stack {
+  gap: 8px;
+}
+
+.editor-workspace {
+  min-height: 0;
+  padding: 12px;
+  display: grid;
+  grid-template-rows: minmax(360px, 1.1fr) minmax(220px, 0.72fr);
+  gap: 12px;
+  overflow: hidden;
+}
+
+.editor-workspace > .preview-pane,
+.editor-workspace > .timeline-pane {
+  padding: 0;
+  overflow: auto;
+}
+
+.inspector-title {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #f4f0e8;
+}
+
+.inspector-title button {
+  min-height: 28px;
+  width: 32px;
+}
+
+.inspector-card {
+  border: 1px solid #353128;
+  border-radius: 8px;
+  background: #181713;
+  padding: 10px;
+  display: grid;
+  gap: 9px;
+}
+
+.inspector-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.inspector-grid span {
+  min-width: 0;
+  border: 1px solid #353128;
+  border-radius: 6px;
+  background: #211f1b;
+  color: #b7afa2;
+  padding: 6px 7px;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inspector-grid strong {
+  color: #f4f0e8;
+}
+
+.mini-details {
+  border: 1px solid #2f2b24;
+  border-radius: 6px;
+  padding: 7px;
+}
+
+.mini-details summary {
+  cursor: pointer;
+  color: #f4f0e8;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(5, 5, 4, 0.72);
+  display: grid;
+  place-items: center;
+  padding: 28px;
+}
+
+.modal-card {
+  width: min(1040px, calc(100vw - 56px));
+  max-height: calc(100vh - 56px);
+  border: 1px solid #3b514b;
+  border-radius: 10px;
+  background: #141310;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.55);
+  display: grid;
+  grid-template-rows: 46px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.modal-json {
+  width: min(1240px, calc(100vw - 48px));
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid #39352d;
+  background: #1a1814;
+}
+
+.modal-header button {
+  min-height: 30px;
+  width: 34px;
+}
+
+.modal-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+}
+
+.modal-json .modal-body {
+  padding: 0;
+}
+
+.modal-grid,
+.settings-modal {
+  display: grid;
+  gap: 10px;
+}
+
+.modal-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.modal-grid button {
+  min-height: 42px;
+  justify-content: flex-start;
+}
+
+.template-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.template-modal-grid button {
+  min-height: 74px;
+  align-items: flex-start;
+  justify-content: center;
+  flex-direction: column;
+  text-align: left;
+}
+
+.template-modal-grid span {
+  color: #b7afa2;
+  font-size: 12px;
+}
+
+.logs-modal {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.7fr);
+  gap: 12px;
+}
+
+.logs-modal .logs,
+.logs-modal .activity-feed {
+  max-height: 62vh;
+}
+
 /* Advanced mode should keep the actual editor visible even when background AI/render
    activity is expanded. Detailed activity remains scrollable instead of pushing tabs
    and preview controls below the fold. */

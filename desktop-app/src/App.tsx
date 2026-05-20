@@ -5,9 +5,13 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock,
+  CircleHelp,
+  Download,
   FileJson,
   FolderOpen,
   Image,
+  Import,
+  Keyboard,
   LayoutTemplate,
   ListVideo,
   MonitorPlay,
@@ -15,11 +19,15 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Redo2,
   Save,
   Scissors,
+  Settings,
   Sparkles,
+  Undo2,
   Video,
   Wand2,
+  X,
   ZoomIn,
   ZoomOut
 } from "lucide-react";
@@ -56,6 +64,7 @@ import {
 } from "./lib/project";
 
 type Tab = "beginner" | "json" | "timeline" | "preview" | "assets" | "director" | "storyboard" | "workflow" | "product";
+type AppModal = "import" | "ai" | "templates" | "export" | "settings" | "help" | "json" | "logs" | null;
 type RenderJob = {
   runId: string;
   label: string;
@@ -366,9 +375,10 @@ function App() {
   const [assistantDraft, setAssistantDraft] = useState("");
   const [assistantMessages, setAssistantMessages] = useState<CollaborationMessage[]>([]);
   const [proactiveMuted, setProactiveMuted] = useState(false);
-  const [leftRailOpen, setLeftRailOpen] = useState(false);
-  const [rightRailOpen, setRightRailOpen] = useState(false);
+  const [leftRailOpen, setLeftRailOpen] = useState(true);
+  const [rightRailOpen, setRightRailOpen] = useState(true);
   const [backgroundImprovements, setBackgroundImprovements] = useState<BackgroundImprovement[]>([]);
+  const [appModal, setAppModal] = useState<AppModal>(null);
 
   const parsed = useMemo(() => parseProject(projectText), [projectText]);
   const project = parsed.data;
@@ -1099,6 +1109,19 @@ function App() {
     finishProcessing(`Imported ${imported.length} asset(s)`, "success");
   }
 
+  async function generateCaptionsFromTranscript() {
+    const transcript = await window.ave.pickTranscript();
+    if (!transcript) return;
+    const result = await window.ave.addCaptions({ text: projectText, transcriptPath: transcript, mode: "word", style: "tiktok" });
+    if (result.ok && result.text) {
+      setProjectText(result.text);
+      setStatus("Captions generated from transcript");
+      setActiveTab("preview");
+    } else {
+      setStatus(result.stderr || result.stdout || "Caption generation failed");
+    }
+  }
+
   async function render(label: string, renderQuality: "preview" | "final") {
     beginProcessing(label, renderQuality === "final" ? "Preparing final export" : "Preparing preview render", `${preset} ${exportFormat}`);
     if (renderQuality === "final" && generationReview && !generationReview.readyForFinalRender) {
@@ -1574,51 +1597,26 @@ function App() {
 
   const preflightBlockingIssues = (finalPreflightReport?.issues || []).filter((issue) => issue.blocking);
   const preflightWarningCount = (finalPreflightReport?.issues || []).filter((issue) => !issue.accepted && issue.severity === "warning").length;
+  const projectTitle = project
+    ? String(project.metadata?.title || project.metadata?.name || projectPath?.split(/[\\/]/).pop() || "Untitled Project")
+    : "Untitled Project";
 
   return (
     <div className={`app-shell theme-${settings.theme} mode-${uiMode} ${leftRailOpen ? "" : "left-rail-collapsed"} ${rightRailOpen ? "" : "right-rail-collapsed"}`}>
       <header className="topbar">
-        <div>
-          <strong>Automatic Video Editor</strong>
+        <div className="project-chip">
+          <strong>{projectTitle}</strong>
           <span>{projectPath || "Unsaved project"}</span>
         </div>
         <div className="toolbar">
-          <button title="Create a beginner auto video" onClick={() => { setUiMode("beginner"); setActiveTab("beginner"); }}>
-            <Sparkles size={16} /> New Auto Video
-          </button>
-          {uiMode === "beginner" && (
-            <button title="Unlock JSON, timeline, assets, and advanced render controls" onClick={() => { setUiMode("advanced"); setActiveTab("json"); }}>
-              <FileJson size={16} /> Advanced Mode
-            </button>
-          )}
-          {uiMode === "advanced" && (
-            <>
-              <button title={leftRailOpen ? "Hide dashboard panel" : "Show dashboard panel"} onClick={() => setLeftRailOpen((open) => !open)}>
-                <LayoutTemplate size={16} /> Dashboard
-              </button>
-              <button title={rightRailOpen ? "Hide AI/render controls" : "Show AI/render controls"} onClick={() => setRightRailOpen((open) => !open)}>
-                <Bot size={16} /> Controls
-              </button>
-              <button title="New project" onClick={() => { setProjectText(formatProject(blankProject())); setProjectPath(null); setUiMode("advanced"); setActiveTab("json"); }}>
-                <Plus size={16} /> New
-              </button>
-              <button title="Open project JSON" onClick={openProject}>
-                <FolderOpen size={16} /> Open
-              </button>
-              <button title="Save project" onClick={saveProject}>
-                <Save size={16} /> Save
-              </button>
-              <button title="Save as" onClick={saveAs}>
-                <FileJson size={16} /> Save As
-              </button>
-              <button title="Validate JSON" onClick={validate}>
-                <CheckCircle2 size={16} /> Validate
-              </button>
-              <button title="Repair JSON with engine" onClick={repair}>
-                <Wand2 size={16} /> Repair
-              </button>
-            </>
-          )}
+          <button title="Save project" onClick={saveProject}><Save size={16} /> Save</button>
+          <button title="Undo is available inside the active editor; Version History is in Project." onClick={() => setStatus("Use Ctrl+Z in the active editor, or open Project > Version History for saved AI edits.")}><Undo2 size={16} /> Undo</button>
+          <button title="Redo is available inside the active editor." onClick={() => setStatus("Use Ctrl+Y or Ctrl+Shift+Z in the active editor when available.")}><Redo2 size={16} /> Redo</button>
+          <button title="Import media" onClick={() => setAppModal("import")}><Import size={16} /> Import</button>
+          <button title="Export settings and final render" onClick={() => { setRightRailOpen(true); setAppModal("export"); }}><Download size={16} /> Export</button>
+          <button title="AI Generate" onClick={() => setAppModal("ai")}><Sparkles size={16} /> AI Generate</button>
+          <button title="Settings" onClick={() => setAppModal("settings")}><Settings size={16} /> Settings</button>
+          <button title="Help and local docs" onClick={() => setAppModal("help")}><CircleHelp size={16} /> Help</button>
         </div>
       </header>
       {appError && (
@@ -1655,35 +1653,50 @@ function App() {
           )}
         </div>
         <aside className="left-rail" aria-hidden={!leftRailOpen}>
-          <Dashboard
-            recent={recent}
-            templates={engine?.templates || []}
-            renderJobs={renderJobs}
-            renderQueueItems={renderQueueItems}
-            onOpenRecent={async (path) => {
-              const file = await window.ave.readProject(path);
-              setProjectPath(file.path);
-              setProjectText(file.text);
-              setUiMode("advanced");
-              setActiveTab("json");
-            }}
-            onTemplate={createFromTemplate}
+          <EditorSidebar
+            activeTab={activeTab}
+            onTab={(tab) => { setUiMode("advanced"); setActiveTab(tab); }}
+            onModal={setAppModal}
+            onImport={importAssets}
+            onCaptions={generateCaptionsFromTranscript}
+            onHighlights={runAssetIntelligence}
+            onRemoveSilence={() => setStatus("Remove silence is available through AI Generate and preview review regeneration.")}
+            onTransitions={() => project && updateProject(suggestBetterTransitions(project))}
+            onPacing={() => void generateContentMode("scene_plan")}
+            onHook={() => void generateContentMode("hook")}
+            onThumbnail={() => setActiveTab("product")}
           />
+          <details className="rail-section compact-section">
+            <summary><Clock size={15} /> Recent / Queue</summary>
+            <Dashboard
+              recent={recent}
+              templates={engine?.templates || []}
+              renderJobs={renderJobs}
+              renderQueueItems={renderQueueItems}
+              onOpenRecent={async (path) => {
+                const file = await window.ave.readProject(path);
+                setProjectPath(file.path);
+                setProjectText(file.text);
+                setUiMode("advanced");
+                setActiveTab("preview");
+              }}
+              onTemplate={createFromTemplate}
+            />
+          </details>
         </aside>
 
         <section className="center-stage">
-          <nav className="tabs">
-            <button className={activeTab === "beginner" ? "active" : ""} onClick={() => setActiveTab("beginner")}><Sparkles size={15} /> Beginner</button>
+          <nav className="workflow-tabs">
+            <button className={activeTab === "beginner" ? "active" : ""} onClick={() => { setUiMode("beginner"); setActiveTab("beginner"); }}><Sparkles size={15} /> Quick Create</button>
             {uiMode === "advanced" && (
               <>
-                <button className={activeTab === "json" ? "active" : ""} onClick={() => setActiveTab("json")}><FileJson size={15} /> JSON</button>
-                <button className={activeTab === "timeline" ? "active" : ""} onClick={() => setActiveTab("timeline")}><ListVideo size={15} /> Timeline</button>
-                <button className={activeTab === "preview" ? "active" : ""} onClick={() => setActiveTab("preview")}><MonitorPlay size={15} /> Preview</button>
-                <button className={activeTab === "assets" ? "active" : ""} onClick={() => setActiveTab("assets")}><Image size={15} /> Assets</button>
-                <button className={activeTab === "director" ? "active" : ""} onClick={() => setActiveTab("director")}><Bot size={15} /> Director</button>
-                <button className={activeTab === "storyboard" ? "active" : ""} onClick={() => setActiveTab("storyboard")}><LayoutTemplate size={15} /> Storyboard</button>
-                <button className={activeTab === "workflow" ? "active" : ""} onClick={() => setActiveTab("workflow")}><Scissors size={15} /> Workflow</button>
-                <button className={activeTab === "product" ? "active" : ""} onClick={() => setActiveTab("product")}><CheckCircle2 size={15} /> Product</button>
+                <button className={activeTab === "preview" || activeTab === "timeline" ? "active" : ""} onClick={() => setActiveTab("preview")}><MonitorPlay size={15} /> Edit</button>
+                <button className={activeTab === "director" || activeTab === "storyboard" ? "active" : ""} onClick={() => setActiveTab("director")}><Bot size={15} /> AI Studio</button>
+                <button onClick={() => { setActiveTab("preview"); setStatus("Caption review controls are in the preview editor."); }}><Captions size={15} /> Captions</button>
+                <button className={activeTab === "beginner" ? "active" : ""} onClick={() => setAppModal("templates")}><LayoutTemplate size={15} /> Templates</button>
+                <button className={activeTab === "product" ? "active" : ""} onClick={() => { setActiveTab("product"); setRightRailOpen(true); }}><Download size={15} /> Export</button>
+                <button className={activeTab === "workflow" ? "active" : ""} onClick={() => setActiveTab("workflow")}><Clock size={15} /> Logs</button>
+                <button onClick={() => setAppModal("json")}><FileJson size={15} /> JSON</button>
                 {finalPreflightReport && (
                   <button
                     className={preflightBlockingIssues.length ? "preflight-tab warning" : "preflight-tab"}
@@ -1745,7 +1758,7 @@ function App() {
               onPreview={() => generateBeginnerAutoVideo("preview")}
               onFinal={() => generateBeginnerAutoVideo("final")}
               onDuplicateProject={() => { void duplicateProjectForIteration(); }}
-              onAdvanced={() => { setUiMode("advanced"); setActiveTab("json"); }}
+              onAdvanced={() => { setUiMode("advanced"); setActiveTab("preview"); }}
             />
           )}
           {activeTab === "json" && (
@@ -1753,28 +1766,31 @@ function App() {
           )}
           {activeTab === "timeline" && project && <VisualTimeline project={project} onProjectChange={updateProject} />}
           {activeTab === "preview" && (
-            <PreviewWindow
-              project={project || null}
-              previewPath={previewPath}
-              realtimePreview={realtimePreview}
-              interactivePreview={interactivePreview}
-              previewTimeSeconds={previewTimeSeconds}
-              setPreviewTimeSeconds={setPreviewTimeSeconds}
-              previewQualityMode={previewQualityMode}
-              setPreviewQualityMode={setPreviewQualityMode}
-              previewScope={previewScope}
-              setPreviewScope={setPreviewScope}
-              previewSceneId={previewSceneId}
-              setPreviewSceneId={setPreviewSceneId}
-              preset={preset}
-              exportFormat={exportFormat}
-              qualityReport={qualityReport}
-              duration={project ? totalTimelineDuration(project) : 0}
-              onRealtimePreview={generateRealtimePreview}
-              onInteractivePreview={generateInteractivePreview}
-              onProjectChange={updateProject}
-              onProjectPreviewChange={updateProjectAndRefreshPreview}
-            />
+            <div className="editor-workspace">
+              <PreviewWindow
+                project={project || null}
+                previewPath={previewPath}
+                realtimePreview={realtimePreview}
+                interactivePreview={interactivePreview}
+                previewTimeSeconds={previewTimeSeconds}
+                setPreviewTimeSeconds={setPreviewTimeSeconds}
+                previewQualityMode={previewQualityMode}
+                setPreviewQualityMode={setPreviewQualityMode}
+                previewScope={previewScope}
+                setPreviewScope={setPreviewScope}
+                previewSceneId={previewSceneId}
+                setPreviewSceneId={setPreviewSceneId}
+                preset={preset}
+                exportFormat={exportFormat}
+                qualityReport={qualityReport}
+                duration={project ? totalTimelineDuration(project) : 0}
+                onRealtimePreview={generateRealtimePreview}
+                onInteractivePreview={generateInteractivePreview}
+                onProjectChange={updateProject}
+                onProjectPreviewChange={updateProjectAndRefreshPreview}
+              />
+              {project ? <VisualTimeline project={project} onProjectChange={updateProject} /> : <div className="timeline-pane panel"><span className="muted">Import media or open a project to show the timeline.</span></div>}
+            </div>
           )}
           {activeTab === "assets" && project && (
             <AssetLibrary
@@ -1910,7 +1926,21 @@ function App() {
         </section>
 
         <aside className="right-rail" aria-hidden={!rightRailOpen}>
-          <details className="rail-section" open>
+          <div className="inspector-title">
+            <strong>Inspector</strong>
+            <button title="Hide inspector" onClick={() => setRightRailOpen(false)}><X size={14} /></button>
+          </div>
+          <InspectorContextPanel
+            activeTab={activeTab}
+            project={project || null}
+            preset={preset}
+            exportFormat={exportFormat}
+            previewSceneId={previewSceneId}
+            duration={project ? totalTimelineDuration(project) : 0}
+            onJson={() => setAppModal("json")}
+            onExport={() => setAppModal("export")}
+          />
+          <details className="rail-section" open={activeTab === "director"}>
             <summary><Bot size={15} /> AI Assistant</summary>
             <AiPanel
               prompt={prompt}
@@ -1934,12 +1964,7 @@ function App() {
               onDirector={runDirector}
               onSuggestTransitions={() => project && updateProject(suggestBetterTransitions(project))}
               onAddScene={() => project && updateProject(addScene(project))}
-              onCaptions={async () => {
-                const transcript = await window.ave.pickTranscript();
-                if (!transcript) return;
-                const result = await window.ave.addCaptions({ text: projectText, transcriptPath: transcript, mode: "word", style: "tiktok" });
-                if (result.ok && result.text) setProjectText(result.text);
-              }}
+              onCaptions={generateCaptionsFromTranscript}
             />
           </details>
           <details className="rail-section">
@@ -1954,7 +1979,7 @@ function App() {
               onDismissImprovement={(id) => setBackgroundImprovements((items) => items.filter((item) => item.id !== id))}
             />
           </details>
-          <details className="rail-section" open>
+          <details className="rail-section" open={activeTab === "product" || activeTab === "preview"}>
             <summary><MonitorPlay size={15} /> Render & Export</summary>
             <RenderPanel
               preset={preset}
@@ -1986,11 +2011,503 @@ function App() {
         </aside>
       </main>
 
+      <EditorModal
+        modal={appModal}
+        onClose={() => setAppModal(null)}
+        projectText={projectText}
+        projectPath={projectPath}
+        project={project || null}
+        engineReady={Boolean(engine)}
+        validation={validation}
+        onJsonChange={setProjectText}
+        onEditorMount={onEditorMount}
+        prompt={prompt}
+        setPrompt={setPrompt}
+        contentMode={contentMode}
+        setContentMode={setContentMode}
+        contentTone={contentTone}
+        setContentTone={setContentTone}
+        generationReview={generationReview}
+        generationLocks={generationLocks}
+        aiNotes={aiNotes}
+        onImport={importAssets}
+        onOpenProject={openProject}
+        onNewProject={() => { setProjectText(formatProject(blankProject())); setProjectPath(null); setUiMode("advanced"); setActiveTab("preview"); }}
+        onSave={saveProject}
+        onSaveAs={saveAs}
+        onGenerate={generateFromPrompt}
+        onYouTubeShort={generateYouTubeShort}
+        onContentGenerate={() => generateContentMode("full")}
+        onAutonomousPipeline={runAutonomousPipeline}
+        onContentRegenerate={(target) => generateContentMode(target)}
+        onContentApprove={(section, statusValue) => approveGeneratedPlan(section, statusValue)}
+        onContentLock={lockGenerationSection}
+        onExplain={() => project && setAiNotes(explainProject(project))}
+        onRepair={repair}
+        onDirector={runDirector}
+        onSuggestTransitions={() => project && updateProject(suggestBetterTransitions(project))}
+        onAddScene={() => project && updateProject(addScene(project))}
+        onCaptions={generateCaptionsFromTranscript}
+        templates={engine?.templates || []}
+        beginnerTemplates={beginnerTemplates}
+        onTemplate={createFromTemplate}
+        onBeginnerTemplate={(template) => { setBeginnerForm((form) => ({ ...form, template })); setUiMode("beginner"); setActiveTab("beginner"); setAppModal(null); }}
+        preset={preset}
+        setPreset={setPreset}
+        exportFormat={exportFormat}
+        setExportFormat={setExportFormat}
+        quality={quality}
+        setQuality={setQuality}
+        cache={useCache}
+        setCache={setUseCache}
+        resume={resume}
+        setResume={setResume}
+        gpu={gpu}
+        setGpu={setGpu}
+        logs={renderLogs}
+        renderQueueItems={renderQueueItems}
+        finalPreflight={finalPreflightReport}
+        onPreflight={() => { void runFinalPreflight(true); }}
+        onRepairPreflight={(mode, issueId) => repairFinalPreflight(mode, issueId)}
+        onPreview={() => render("Preview render", "preview")}
+        onFinal={() => render("Final render", "final")}
+        onPauseQueue={async () => setRenderQueueItems(await window.ave.pauseRenderQueue())}
+        onResumeQueue={async () => setRenderQueueItems(await window.ave.resumeRenderQueue())}
+        onCancelJob={async (runId) => setRenderQueueItems(await window.ave.cancelRenderJob({ runId }))}
+        onRetryJob={async (runId) => setRenderQueueItems(await window.ave.retryRenderJob({ runId }))}
+        onOpenOutput={() => window.ave.openOutputFolder()}
+        settings={settings}
+        setSettings={setSettings}
+        onSaveSettings={() => saveAppSettings(settings)}
+        activityFeed={activityFeed}
+        onOpenDocs={openLocalDocs}
+      />
+
       <footer className="statusbar">
         <span>{status}</span>
         {parsed.error && <span className="error">JSON parse error: {parsed.error}</span>}
         {project && <span>{project.timeline?.length || 0} scenes | {Object.keys(project.assets || {}).length} assets | {totalTimelineDuration(project).toFixed(1)}s</span>}
       </footer>
+    </div>
+  );
+}
+
+function EditorSidebar({
+  activeTab,
+  onTab,
+  onModal,
+  onImport,
+  onCaptions,
+  onHighlights,
+  onRemoveSilence,
+  onTransitions,
+  onPacing,
+  onHook,
+  onThumbnail
+}: {
+  activeTab: Tab;
+  onTab: (tab: Tab) => void;
+  onModal: (modal: AppModal) => void;
+  onImport: () => void;
+  onCaptions: () => void;
+  onHighlights: () => void;
+  onRemoveSilence: () => void;
+  onTransitions: () => void;
+  onPacing: () => void;
+  onHook: () => void;
+  onThumbnail: () => void;
+}) {
+  return (
+    <div className="editor-sidebar">
+      <details className="rail-section" open>
+        <summary><Image size={15} /> Media</summary>
+        <button className={activeTab === "assets" ? "sidebar-action active" : "sidebar-action"} onClick={() => onTab("assets")}>Imported videos</button>
+        <button className="sidebar-action" onClick={() => onTab("assets")}>Images</button>
+        <button className="sidebar-action" onClick={() => onTab("assets")}>Audio</button>
+        <button className="sidebar-action" onClick={() => onModal("import")}>URLs</button>
+        <button className="sidebar-action" onClick={() => onTab("storyboard")}>Generated assets</button>
+        <button className="primary-sidebar-action" onClick={onImport}><Import size={14} /> Import media</button>
+      </details>
+
+      <details className="rail-section" open>
+        <summary><LayoutTemplate size={15} /> Templates</summary>
+        {["YouTube Shorts", "TikTok", "Instagram Reels", "Gaming clips", "Podcast clips", "Educational videos", "Promo/ad templates"].map((label) => (
+          <button className="sidebar-action" key={label} onClick={() => onModal("templates")}>{label}</button>
+        ))}
+      </details>
+
+      <details className="rail-section" open>
+        <summary><Sparkles size={15} /> AI Tools</summary>
+        <button className="sidebar-action" onClick={() => onModal("ai")}>Auto edit</button>
+        <button className="sidebar-action" onClick={onCaptions}>Generate captions</button>
+        <button className="sidebar-action" onClick={onHighlights}>Detect highlights</button>
+        <button className="sidebar-action" onClick={onRemoveSilence}>Remove silence</button>
+        <button className="sidebar-action" onClick={() => onModal("ai")}>Add B-roll</button>
+        <button className="sidebar-action" onClick={onTransitions}>Add transitions</button>
+        <button className="sidebar-action" onClick={onPacing}>Improve pacing</button>
+        <button className="sidebar-action" onClick={onHook}>Generate title/hook</button>
+        <button className="sidebar-action" onClick={onThumbnail}>Generate thumbnail ideas</button>
+      </details>
+
+      <details className="rail-section">
+        <summary><Scissors size={15} /> Effects</summary>
+        {["Text", "Captions", "Transitions", "Filters", "Overlays", "Motion", "Blur", "Zoom/pan", "Sound effects"].map((label) => (
+          <button className="sidebar-action" key={label} onClick={() => onTab(label === "Captions" ? "preview" : "timeline")}>{label}</button>
+        ))}
+      </details>
+
+      <details className="rail-section">
+        <summary><FileJson size={15} /> Project</summary>
+        <button className="sidebar-action" onClick={() => onModal("json")}>Timeline JSON</button>
+        <button className="sidebar-action" onClick={() => onTab("timeline")}>Scene list</button>
+        <button className="sidebar-action" onClick={() => onTab("product")}>Export history</button>
+        <button className="sidebar-action" onClick={() => onTab("workflow")}>Version history</button>
+        <button className="sidebar-action" onClick={() => onModal("logs")}>Logs</button>
+      </details>
+    </div>
+  );
+}
+
+function InspectorContextPanel({
+  activeTab,
+  project,
+  preset,
+  exportFormat,
+  previewSceneId,
+  duration,
+  onJson,
+  onExport
+}: {
+  activeTab: Tab;
+  project: ProjectData | null;
+  preset: string;
+  exportFormat: string;
+  previewSceneId: string;
+  duration: number;
+  onJson: () => void;
+  onExport: () => void;
+}) {
+  const scene = project?.timeline?.find((item) => item.id === previewSceneId) || project?.timeline?.[0];
+  const mediaLayer = scene?.layers?.find((layer) => layer.type === "video" || layer.type === "image");
+  const textLayer = scene?.layers?.find((layer) => layer.type === "text" || layer.type === "caption" || layer.type === "captions");
+  return (
+    <section className="inspector-card">
+      <div className="review-header">
+        <strong>{activeTab === "product" ? "Export Settings" : activeTab === "beginner" ? "Template Settings" : "Selection Settings"}</strong>
+        <span className="muted">{scene?.id || "project"}</span>
+      </div>
+      <div className="inspector-grid">
+        <span>duration <strong>{duration.toFixed(1)}s</strong></span>
+        <span>preset <strong>{preset}</strong></span>
+        <span>format <strong>{exportFormat}</strong></span>
+        <span>scenes <strong>{project?.timeline?.length || 0}</strong></span>
+      </div>
+      {mediaLayer && (
+        <details className="mini-details" open>
+          <summary>Clip</summary>
+          <div className="inspector-grid">
+            <span>asset <strong>{String(mediaLayer.asset || "-")}</strong></span>
+            <span>trim <strong>{String(mediaLayer.trimStart ?? 0)}s</strong></span>
+            <span>speed <strong>{String(mediaLayer.speed ?? 1)}x</strong></span>
+            <span>opacity <strong>{String(mediaLayer.opacity ?? 1)}</strong></span>
+          </div>
+        </details>
+      )}
+      {textLayer && (
+        <details className="mini-details">
+          <summary>Text / Captions</summary>
+          <div className="inspector-grid">
+            <span>font <strong>{String(textLayer.fontFamily || "default")}</strong></span>
+            <span>size <strong>{String(textLayer.fontSize || "-")}</strong></span>
+            <span>color <strong>{String(textLayer.color || textLayer.highlightColor || "-")}</strong></span>
+            <span>safe zone <strong>{String(textLayer.safeZone || "on")}</strong></span>
+          </div>
+        </details>
+      )}
+      <div className="button-grid compact">
+        <button onClick={onJson}><FileJson size={14} /> JSON</button>
+        <button onClick={onExport}><Download size={14} /> Export</button>
+      </div>
+    </section>
+  );
+}
+
+function EditorModal({
+  modal,
+  onClose,
+  projectText,
+  projectPath,
+  project,
+  engineReady,
+  validation,
+  onJsonChange,
+  onEditorMount,
+  prompt,
+  setPrompt,
+  contentMode,
+  setContentMode,
+  contentTone,
+  setContentTone,
+  generationReview,
+  generationLocks,
+  aiNotes,
+  onImport,
+  onOpenProject,
+  onNewProject,
+  onSave,
+  onSaveAs,
+  onGenerate,
+  onYouTubeShort,
+  onContentGenerate,
+  onAutonomousPipeline,
+  onContentRegenerate,
+  onContentApprove,
+  onContentLock,
+  onExplain,
+  onRepair,
+  onDirector,
+  onSuggestTransitions,
+  onAddScene,
+  onCaptions,
+  templates,
+  beginnerTemplates,
+  onTemplate,
+  onBeginnerTemplate,
+  preset,
+  setPreset,
+  exportFormat,
+  setExportFormat,
+  quality,
+  setQuality,
+  cache,
+  setCache,
+  resume,
+  setResume,
+  gpu,
+  setGpu,
+  logs,
+  renderQueueItems,
+  finalPreflight,
+  onPreflight,
+  onRepairPreflight,
+  onPreview,
+  onFinal,
+  onPauseQueue,
+  onResumeQueue,
+  onCancelJob,
+  onRetryJob,
+  onOpenOutput,
+  settings,
+  setSettings,
+  onSaveSettings,
+  activityFeed,
+  onOpenDocs
+}: {
+  modal: AppModal;
+  onClose: () => void;
+  projectText: string;
+  projectPath: string | null;
+  project: ProjectData | null;
+  engineReady: boolean;
+  validation: EngineResult | null;
+  onJsonChange: (value: string) => void;
+  onEditorMount: OnMount;
+  prompt: string;
+  setPrompt: (value: string) => void;
+  contentMode: string;
+  setContentMode: (value: string) => void;
+  contentTone: string;
+  setContentTone: (value: string) => void;
+  generationReview: GenerationReviewState | null;
+  generationLocks: string[];
+  aiNotes: string;
+  onImport: () => void;
+  onOpenProject: () => void;
+  onNewProject: () => void;
+  onSave: () => void;
+  onSaveAs: () => void;
+  onGenerate: () => void;
+  onYouTubeShort: () => void;
+  onContentGenerate: () => void;
+  onAutonomousPipeline: () => void;
+  onContentRegenerate: (target: string) => void;
+  onContentApprove: (section?: string, statusValue?: string) => void;
+  onContentLock: (section: string) => void;
+  onExplain: () => void;
+  onRepair: () => void;
+  onDirector: () => void;
+  onSuggestTransitions: () => void;
+  onAddScene: () => void;
+  onCaptions: () => void;
+  templates: string[];
+  beginnerTemplates: BeginnerTemplateCard[];
+  onTemplate: (key: string) => void;
+  onBeginnerTemplate: (key: string) => void;
+  preset: string;
+  setPreset: (value: string) => void;
+  exportFormat: "mp4" | "mov" | "mkv" | "webm" | "gif";
+  setExportFormat: (value: "mp4" | "mov" | "mkv" | "webm" | "gif") => void;
+  quality: "preview" | "final";
+  setQuality: (value: "preview" | "final") => void;
+  cache: boolean;
+  setCache: (value: boolean) => void;
+  resume: boolean;
+  setResume: (value: boolean) => void;
+  gpu: boolean;
+  setGpu: (value: boolean) => void;
+  logs: string[];
+  renderQueueItems: RenderQueueItem[];
+  finalPreflight: FinalPreflightReport | null;
+  onPreflight: () => void;
+  onRepairPreflight: (mode: string, issueId?: string | null) => void;
+  onPreview: () => void;
+  onFinal: () => void;
+  onPauseQueue: () => void;
+  onResumeQueue: () => void;
+  onCancelJob: (runId: string) => void;
+  onRetryJob: (runId: string) => void;
+  onOpenOutput: () => void;
+  settings: AppSettings;
+  setSettings: (value: AppSettings | ((value: AppSettings) => AppSettings)) => void;
+  onSaveSettings: () => void;
+  activityFeed: ProcessingActivity[];
+  onOpenDocs: () => void;
+}) {
+  if (!modal) return null;
+  const titles: Record<Exclude<AppModal, null>, string> = {
+    import: "Import Media",
+    ai: "AI Edit Prompt",
+    templates: "Template Picker",
+    export: "Export Settings",
+    settings: "Project Settings",
+    help: "Help",
+    json: "Timeline JSON",
+    logs: "Logs / Debug"
+  };
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <section className={`modal-card modal-${modal}`}>
+        <header className="modal-header">
+          <strong>{titles[modal]}</strong>
+          <button onClick={onClose} title="Close"><X size={16} /></button>
+        </header>
+        <div className="modal-body">
+          {modal === "import" && (
+            <div className="modal-grid">
+              <button onClick={onImport}><Import size={16} /> Import media into current project</button>
+              <button onClick={onOpenProject}><FolderOpen size={16} /> Open project.json</button>
+              <button onClick={onNewProject}><Plus size={16} /> New project</button>
+              <button onClick={onSave}><Save size={16} /> Save</button>
+              <button onClick={onSaveAs}><FileJson size={16} /> Save As</button>
+              <span className="muted">URL download/import stays local and will be wired through the media import pipeline.</span>
+            </div>
+          )}
+          {modal === "ai" && (
+            <AiPanel
+              prompt={prompt}
+              setPrompt={setPrompt}
+              contentMode={contentMode}
+              setContentMode={setContentMode}
+              contentTone={contentTone}
+              setContentTone={setContentTone}
+              generationReview={generationReview}
+              generationLocks={generationLocks}
+              notes={aiNotes}
+              onGenerate={onGenerate}
+              onYouTubeShort={onYouTubeShort}
+              onContentGenerate={onContentGenerate}
+              onAutonomousPipeline={onAutonomousPipeline}
+              onContentRegenerate={onContentRegenerate}
+              onContentApprove={onContentApprove}
+              onContentLock={onContentLock}
+              onExplain={onExplain}
+              onRepair={onRepair}
+              onDirector={onDirector}
+              onSuggestTransitions={onSuggestTransitions}
+              onAddScene={onAddScene}
+              onCaptions={onCaptions}
+            />
+          )}
+          {modal === "templates" && (
+            <div className="template-modal-grid">
+              {beginnerTemplates.map((template) => (
+                <button key={template.key} onClick={() => onBeginnerTemplate(template.key)}>
+                  <strong>{template.name}</strong>
+                  <span>{template.platform} / {template.aspectRatio} / {template.captionStyle}</span>
+                </button>
+              ))}
+              {templates.map((template) => (
+                <button key={template} onClick={() => onTemplate(template)}>
+                  <strong>{templateLabels[template] || template}</strong>
+                  <span>JSON template</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {modal === "export" && (
+            <RenderPanel
+              preset={preset}
+              setPreset={setPreset}
+              exportFormat={exportFormat}
+              setExportFormat={setExportFormat}
+              quality={quality}
+              setQuality={setQuality}
+              cache={cache}
+              setCache={setCache}
+              resume={resume}
+              setResume={setResume}
+              gpu={gpu}
+              setGpu={setGpu}
+              logs={logs}
+              renderQueueItems={renderQueueItems}
+              finalPreflight={finalPreflight}
+              onPreflight={onPreflight}
+              onRepairPreflight={onRepairPreflight}
+              onPreview={onPreview}
+              onFinal={onFinal}
+              onPauseQueue={onPauseQueue}
+              onResumeQueue={onResumeQueue}
+              onCancelJob={onCancelJob}
+              onRetryJob={onRetryJob}
+              onOpenOutput={onOpenOutput}
+            />
+          )}
+          {modal === "settings" && (
+            <div className="settings-modal">
+              <label>Theme<select value={settings.theme} onChange={(event) => setSettings((current) => ({ ...current, theme: event.target.value as AppSettings["theme"] }))}><option value="graphite">graphite</option><option value="midnight">midnight</option><option value="light">light</option></select></label>
+              <label>Preview start time<input type="number" value={settings.previewTimeSeconds} onChange={(event) => setSettings((current) => ({ ...current, previewTimeSeconds: Number(event.target.value) }))} /></label>
+              <label><input type="checkbox" checked={settings.autosave} onChange={(event) => setSettings((current) => ({ ...current, autosave: event.target.checked }))} /> autosave</label>
+              <label><input type="checkbox" checked={settings.keyboardShortcuts} onChange={(event) => setSettings((current) => ({ ...current, keyboardShortcuts: event.target.checked }))} /> keyboard shortcuts</label>
+              <button onClick={onSaveSettings}><Save size={15} /> Save settings</button>
+              <small className="muted">Project: {projectPath || "unsaved"} / {project?.timeline?.length || 0} scenes</small>
+            </div>
+          )}
+          {modal === "help" && (
+            <div className="modal-grid">
+              <button onClick={onOpenDocs}><CircleHelp size={16} /> Open bundled local docs</button>
+              <button onClick={() => alert("Shortcuts: Ctrl+S save, Ctrl+O open, Ctrl+Enter preview render. JSON editor supports Monaco shortcuts.")}><Keyboard size={16} /> Keyboard shortcuts</button>
+              <span className="muted">All editing remains local-first. JSON is still the source of truth; this shell only reorganizes access to the existing engine.</span>
+            </div>
+          )}
+          {modal === "json" && (
+            <JsonEditor text={projectText} schemaReady={engineReady} onChange={onJsonChange} onMount={onEditorMount} validation={validation} />
+          )}
+          {modal === "logs" && (
+            <div className="logs-modal">
+              <pre className="logs">{logs.join("\n") || "No render logs yet."}</pre>
+              <div className="activity-feed">
+                {activityFeed.map((item) => (
+                  <div className={`activity-row ${item.kind}`} key={item.id}>
+                    <strong>{activityGlyph(item.kind)}</strong>
+                    <span>{item.label}</span>
+                    <small>{item.detail || item.time}</small>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
