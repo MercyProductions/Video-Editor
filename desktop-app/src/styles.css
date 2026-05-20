@@ -4002,6 +4002,7 @@ textarea {
 .project-hub {
   min-height: 0;
   overflow: auto;
+  overflow-x: hidden;
   padding: 14px;
   display: grid;
   gap: 14px;
@@ -5859,5 +5860,401 @@ textarea {
   .review-check-grid,
   .review-hero-panel {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Responsive workstation fit pass.
+   Keeps the full editor usable in ordinary desktop windows instead of requiring
+   a fully maximized display. */
+.topbar {
+  min-height: 54px;
+  grid-template-columns: minmax(180px, 270px) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.project-chip {
+  min-width: 0;
+}
+
+.toolbar {
+  min-width: 0;
+  align-self: stretch;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.toolbar button {
+  min-width: 36px;
+  min-height: 34px;
+  padding-inline: 9px;
+}
+
+.workspace {
+  grid-template-columns:
+    58px
+    minmax(210px, min(var(--left-rail-width), 22vw))
+    minmax(0, 1fr)
+    minmax(260px, min(var(--right-rail-width), 26vw));
+}
+
+.layout-inspector_left .workspace {
+  grid-template-columns:
+    58px
+    minmax(260px, min(var(--right-rail-width), 26vw))
+    minmax(0, 1fr)
+    minmax(210px, min(var(--left-rail-width), 22vw));
+}
+
+.layout-media_right .workspace {
+  grid-template-columns:
+    58px
+    minmax(0, 1fr)
+    minmax(260px, min(var(--right-rail-width), 26vw))
+    minmax(210px, min(var(--left-rail-width), 22vw));
+}
+
+.layout-preview_focus .workspace {
+  grid-template-columns:
+    58px
+    minmax(190px, min(var(--left-rail-width), 18vw))
+    minmax(0, 1fr)
+    minmax(240px, min(var(--right-rail-width), 22vw));
+}
+
+.mode-rail {
+  padding: 8px 6px;
+}
+
+.mode-rail button {
+  min-height: 52px;
+}
+
+.left-rail,
+.right-rail {
+  min-width: 0;
+  padding: 10px;
+  scrollbar-gutter: stable;
+}
+
+.rail-titlebar {
+  min-height: 38px;
+  margin-bottom: 8px;
+}
+
+.center-stage {
+  overflow: hidden;
+}
+
+.workflow-tabs {
+  min-height: 42px;
+  padding: 6px 10px;
+}
+
+.context-header {
+  padding: 9px 12px 10px;
+}
+
+.context-title-row {
+  gap: 10px;
+}
+
+.context-title-row h2 {
+  font-size: 17px;
+}
+
+.context-title-row p {
+  font-size: 12px;
+}
+
+.context-meta {
+  max-width: 330px;
+}
+
+.context-meta span {
+  min-height: 22px;
+  padding: 2px 7px;
+  font-size: 11px;
+}
+
+.professional-editor {
+  padding: 10px;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 260px);
+  gap: 10px;
+}
+
+.editor-preview-stack {
+  grid-template-rows: minmax(230px, 1fr) minmax(160px, 0.64fr);
+  gap: 10px;
+}
+
+.preview-pane,
+.timeline-pane,
+.assets-pane,
+.storyboard-pane,
+.workflow-pane {
+  gap: 10px;
+  padding: 10px;
+}
+
+.preview-pane {
+  grid-template-rows: minmax(190px, 1fr) auto;
+}
+
+.preview-frame {
+  min-height: 190px;
+}
+
+.timeline-safety-bar,
+.workstation-strip,
+.preview-toolbar,
+.preview-controls {
+  flex-wrap: wrap;
+}
+
+.preview-controls {
+  gap: 6px;
+}
+
+.preview-controls span {
+  width: auto;
+  min-width: 74px;
+}
+
+.timeline-tools {
+  gap: 6px;
+}
+
+.timeline-tool-group {
+  gap: 5px;
+  padding-right: 6px;
+}
+
+.timeline-tool-group button,
+.timeline-tool-group label {
+  min-height: 30px;
+}
+
+.timeline-lane {
+  grid-template-columns: 132px minmax(0, 1fr);
+}
+
+.timeline-lane-header {
+  padding: 8px;
+}
+
+.track-controls button {
+  min-height: 22px;
+  padding: 2px 5px;
+}
+
+.media-bin-panel .assets-pane {
+  padding: 8px;
+}
+
+.inspector-card,
+.suggested-edit-card {
+  padding: 8px;
+}
+
+.inspector-grid {
+  grid-template-columns: 1fr;
+}
+
+.mode-advanced .processing-slot {
+  max-height: min(20vh, 168px);
+}
+
+.mode-advanced .processing-dock {
+  max-height: min(20vh, 168px);
+  padding: 8px 10px;
+  gap: 8px;
+}
+
+.mode-advanced .processing-head h2,
+.mode-advanced .processing-head strong {
+  margin-bottom: 2px;
+}
+
+.mode-advanced .processing-context {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.mode-advanced .processing-context span {
+  min-height: 30px;
+  padding: 6px;
+}
+
+.mode-advanced .live-scenes,
+.mode-advanced .collab-sidebar,
+.mode-advanced .activity-feed,
+.mode-advanced .reasoning-panel {
+  max-height: 128px;
+}
+
+.render-activity-popup {
+  width: min(340px, calc(100vw - 36px));
+  max-height: min(430px, calc(100vh - 110px));
+  overflow: auto;
+}
+
+.mode-advanced:not(.right-rail-collapsed) .render-activity-popup {
+  right: calc(min(var(--right-rail-width), 26vw) + 18px);
+}
+
+.render-activity-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 1600px) {
+  .topbar {
+    grid-template-columns: minmax(160px, 235px) minmax(0, 1fr);
+  }
+
+  .toolbar button:nth-child(n + 8) {
+    width: 38px;
+    padding-inline: 0;
+    font-size: 0;
+  }
+
+  .toolbar button:nth-child(n + 8) svg {
+    margin: 0;
+  }
+
+  .notification-badge {
+    font-size: 10px !important;
+  }
+
+  .context-title-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .context-meta {
+    justify-content: flex-start;
+    max-width: none;
+  }
+
+  .creation-paths {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-path {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 1420px) {
+  .workspace,
+  .layout-inspector_left .workspace,
+  .layout-media_right .workspace,
+  .layout-preview_focus .workspace {
+    grid-template-columns: 56px minmax(196px, 216px) minmax(0, 1fr) minmax(238px, 276px);
+  }
+
+  .professional-editor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .media-bin-panel {
+    max-height: 220px;
+  }
+
+  .toolbar button:nth-child(n + 6) {
+    width: 38px;
+    padding-inline: 0;
+    font-size: 0;
+  }
+
+  .hub-hero,
+  .hub-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hub-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .creation-card {
+    padding: 12px;
+  }
+}
+
+@media (max-height: 820px) {
+  .app-shell {
+    grid-template-rows: 52px minmax(0, 1fr) 24px;
+  }
+
+  .topbar {
+    min-height: 52px;
+  }
+
+  .mode-advanced .processing-slot {
+    max-height: 118px;
+  }
+
+  .mode-advanced .processing-dock {
+    max-height: 118px;
+  }
+
+  .mode-advanced .processing-side,
+  .mode-advanced .processing-bottom,
+  .mode-advanced .collaboration-grid {
+    display: none;
+  }
+
+  .workflow-tabs {
+    min-height: 38px;
+    padding-block: 5px;
+  }
+
+  .context-header {
+    padding-block: 7px;
+  }
+
+  .context-title-row h2 {
+    font-size: 16px;
+  }
+
+  .context-title-row p,
+  .breadcrumb-row {
+    font-size: 11px;
+  }
+
+  .professional-editor {
+    padding: 8px;
+  }
+
+  .editor-preview-stack {
+    grid-template-rows: minmax(200px, 1fr) minmax(140px, 0.55fr);
+  }
+
+  .preview-frame {
+    min-height: 170px;
+  }
+
+  .left-rail,
+  .right-rail {
+    padding: 8px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .app-shell:not(.mode-beginner) .workspace {
+    grid-template-columns: 54px minmax(0, 1fr);
+    grid-template-areas:
+      "processing processing"
+      "mode center";
+  }
+
+  .app-shell:not(.mode-beginner) .left-rail,
+  .app-shell:not(.mode-beginner) .right-rail {
+    display: none;
+  }
+
+  .app-shell:not(.mode-beginner) .center-stage {
+    grid-column: auto;
   }
 }

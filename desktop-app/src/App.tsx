@@ -479,6 +479,58 @@ const defaultBeginnerForm: BeginnerFormState = {
   duration: 30
 };
 
+function createBrowserPreviewAveApi(): AveApi {
+  const engineOk: EngineResult = { ok: true, stdout: "Browser UI preview mode", stderr: "", exitCode: 0 };
+  const sampleProject = formatProject(blankProject());
+  const noopOff = () => undefined;
+  const api: Partial<AveApi> = {
+    getEngineInfo: async () => ({
+      engineRoot: "Browser UI preview",
+      schema: {},
+      examplesDir: "",
+      outputDir: "",
+      templates: beginnerTemplates.map((template) => template.key),
+      presets: ["youtube_1080p", "shorts", "tiktok_reels"],
+      styles: ["clean", "gaming", "cinematic", "educational", "hype"]
+    }),
+    getRecentProjects: async () => [],
+    getRenderQueue: async () => [],
+    startupRecovery: async () => ({ crashed: false, latestRecovery: null }),
+    listPlugins: async () => [],
+    getSettings: async () => ({ ...defaultUiSettings, onboardingComplete: true, beginnerTips: false }),
+    listTemplatePacks: async () => [],
+    getAdaptiveWorkflowMemory: async () => null as unknown as AdaptiveWorkflowMemory,
+    workflowDashboard: async () => ({ ...engineOk, data: {} }),
+    checkAssets: async () => [],
+    listHistory: async () => [],
+    listRecovery: async () => [],
+    getHardeningStatus: async () => null as unknown as HardeningStatus,
+    systemMetrics: async () => ({
+      cpuPercent: 0,
+      gpuPercent: 0,
+      memoryUsedMb: 0,
+      memoryTotalMb: 0,
+      gpuProcessActive: false,
+      gpuMode: "browser-preview",
+      sampledAt: Date.now()
+    }),
+    logFriction: async () => ({}),
+    onRenderLog: () => noopOff,
+    onRenderComplete: () => noopOff,
+    onRenderQueue: () => noopOff
+  };
+  return new Proxy(api, {
+    get(target, prop: keyof AveApi) {
+      if (prop in target) return target[prop];
+      return async () => ({ ...engineOk, text: sampleProject, data: {}, path: null });
+    }
+  }) as AveApi;
+}
+
+if (typeof window !== "undefined" && !window.ave) {
+  window.ave = createBrowserPreviewAveApi();
+}
+
 const defaultQuickCreate: QuickCreateState = {
   mediaFile: null,
   platform: "shorts",
@@ -940,7 +992,7 @@ function App() {
   const [activityFeed, setActivityFeed] = useState<ProcessingActivity[]>([]);
   const [processingCollapsed, setProcessingCollapsed] = useState(true);
   const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
-  const [renderActivityMinimized, setRenderActivityMinimized] = useState(false);
+  const [renderActivityMinimized, setRenderActivityMinimized] = useState(true);
   const [assistantDraft, setAssistantDraft] = useState("");
   const [assistantMessages, setAssistantMessages] = useState<CollaborationMessage[]>([]);
   const [proactiveMuted, setProactiveMuted] = useState(false);
@@ -3427,7 +3479,7 @@ function App() {
                 <button className={activeTab === "templatesMode" || activeTab === "beginner" ? "active" : ""} onClick={() => setActiveTab("templatesMode")}><LayoutTemplate size={15} /> Templates</button>
                 <button className={activeTab === "reviewMode" ? "active" : ""} onClick={() => setActiveTab("reviewMode")}><CheckCircle2 size={15} /> Review</button>
                 <button className={activeTab === "exportMode" || activeTab === "product" ? "active" : ""} onClick={() => { setActiveTab("exportMode"); setRightRailOpen(true); }}><Download size={15} /> Export</button>
-                <button className={["diagnostics", "workflow", "json"].includes(activeTab) ? "active" : ""} onClick={() => setActiveTab("diagnostics")}><Clock size={15} /> Logs / Diagnostics</button>
+                <button className={["diagnostics", "workflow", "json"].includes(activeTab) ? "active" : ""} title="Logs and Diagnostics" onClick={() => setActiveTab("diagnostics")}><Clock size={15} /> Logs</button>
                 {finalPreflightReport && (
                   <button
                     className={preflightBlockingIssues.length ? "preflight-tab warning" : "preflight-tab"}
@@ -7015,7 +7067,7 @@ function RenderActivityPopup({
 }) {
   const activeJob = activeRenderJob(renderQueueItems);
   const active = processing.isActive || Boolean(activeJob);
-  if (!active && activityFeed.length === 0) return null;
+  if (!active) return null;
 
   const progress = safePercent(activeJob ? Number(activeJob.progressPercent || 0) : processing.progress);
   const stage = activeJob?.currentScene ? `Rendering ${activeJob.currentScene}` : activeJob?.status === "queued" ? "Waiting in render queue" : processing.currentStage;

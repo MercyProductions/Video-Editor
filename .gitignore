@@ -3,6 +3,8 @@ __pycache__/
 .venv/
 venv/
 *.log
+.aegis/
+.debug/
 
 desktop-app/node_modules/
 desktop-app/dist/
