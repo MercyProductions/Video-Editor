@@ -3237,6 +3237,17 @@ function App() {
     setStatus("Opened AI Studio prompt builder");
   }
 
+  function openFirstAiEditGuide() {
+    setUiMode("advanced");
+    setActiveTab("aiStudio");
+    setAiPromptBuilderOpen(true);
+    setAppModal(null);
+    if (!prompt.trim()) {
+      setPrompt("Make this imported video into a polished YouTube Short with captions, clean cuts, and a strong hook.");
+    }
+    setStatus("First AI Edit: describe the edit, generate a plan, review it, then apply it to the timeline.");
+  }
+
   return (
     <div
       className={`app-shell theme-${settings.theme} scale-${settings.uiScale || "medium"} layout-${settings.panelDock || "standard"} workspace-preset-${settings.workspacePreset || "editing"} mode-${uiMode} ${leftRailOpen ? "" : "left-rail-collapsed"} ${rightRailOpen ? "" : "right-rail-collapsed"}`}
@@ -3495,6 +3506,7 @@ function App() {
               onAnalyze={runAssetIntelligence}
               onDropAsset={(asset) => project && updateProject(addAssetToFirstScene(project, asset))}
               onReplaceAsset={(assetKey) => { void replaceProjectAsset(assetKey); }}
+              onFirstAiEdit={openFirstAiEditGuide}
               onAutosaveNow={() => { void autosaveNow(); }}
               onDuplicateProject={() => { void duplicateProjectForIteration(); }}
               versionCount={history.length}
@@ -3782,6 +3794,7 @@ function App() {
               onDropAsset={(asset) => updateProject(addAssetToFirstScene(project, asset))}
               onProjectChange={updateProject}
               onReplaceAsset={(assetKey) => { void replaceProjectAsset(assetKey); }}
+              onFirstAiEdit={openFirstAiEditGuide}
             />
           )}
           {activeTab === "director" && (
@@ -4666,6 +4679,7 @@ function EditorMode({
   onAnalyze,
   onDropAsset,
   onReplaceAsset,
+  onFirstAiEdit,
   onAutosaveNow,
   onDuplicateProject,
   versionCount,
@@ -4696,6 +4710,7 @@ function EditorMode({
   onAnalyze: () => void;
   onDropAsset: (asset: ImportedAsset) => void;
   onReplaceAsset: (assetKey: string) => void;
+  onFirstAiEdit: () => void;
   onAutosaveNow?: () => void;
   onDuplicateProject?: () => void;
   versionCount?: number;
@@ -4748,6 +4763,7 @@ function EditorMode({
           onDropAsset={onDropAsset}
           onProjectChange={onProjectChange}
           onReplaceAsset={onReplaceAsset}
+          onFirstAiEdit={onFirstAiEdit}
         />
       </aside>
     </div>
@@ -8891,7 +8907,8 @@ function AssetLibrary({
   onAnalyze,
   onDropAsset,
   onProjectChange,
-  onReplaceAsset
+  onReplaceAsset,
+  onFirstAiEdit
 }: {
   project: ProjectData;
   assets: AssetCheck[];
@@ -8901,6 +8918,7 @@ function AssetLibrary({
   onDropAsset: (asset: ImportedAsset) => void;
   onProjectChange: (project: ProjectData) => void;
   onReplaceAsset: (assetKey: string) => void;
+  onFirstAiEdit: () => void;
 }) {
   const [activeCategory, setActiveCategory] = useState<MediaBinCategory>("all");
   const [query, setQuery] = useState("");
@@ -9142,6 +9160,22 @@ function AssetLibrary({
         <span>{Object.keys(project.assets || {}).length} JSON assets</span>
         <span>{assets.filter((asset) => !asset.exists).length} missing</span>
       </div>
+      {assets.length > 0 && (
+        <section className="first-ai-edit-card">
+          <div>
+            <span className="eyebrow">Next step</span>
+            <strong>Ready for your first AI edit</strong>
+            <p>Use AI Studio to describe the video you want. It will make a reviewable plan first, then you choose when to apply it.</p>
+          </div>
+          <ol>
+            <li>Generate AI plan</li>
+            <li>Review scenes and captions</li>
+            <li>Apply to timeline</li>
+            <li>Preview, then export</li>
+          </ol>
+          <button className="primary-create" onClick={onFirstAiEdit}><Sparkles size={15} /> Start first AI edit</button>
+        </section>
+      )}
       <div className="media-bin-layout">
         <aside className="media-bin-categories">
           {categories.map((category) => (
