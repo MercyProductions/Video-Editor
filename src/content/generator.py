@@ -132,7 +132,12 @@ def run_content_generator(
     plan = create_generation_plan(brief, script, scene_plan, music_path=music_path, logo_path=logo_path)
     plan = _merge_locked_plan(plan, previous, regenerate=regenerate, locks=locks)
 
-    clip_report = _select_media(assets_folder, output_dir=output_dir, scene_duration=_media_scene_duration(plan))
+    clip_report = _select_media(
+        assets_folder,
+        output_dir=output_dir,
+        scene_duration=_media_scene_duration(plan),
+        max_clips=max(1, _media_scene_count(plan)),
+    )
     plan.setdefault("warnings", []).extend(clip_report.get("warnings", []))
     music_analysis = _analyze_music(music_path, output_dir=output_dir)
     if music_analysis:
@@ -280,9 +285,10 @@ def create_scene_plan(brief: dict[str, Any], script: dict[str, Any]) -> list[dic
         scenes.append(_scene("recap", "result", timings["recap"], "Clean Finish", _payoff(brief["productName"], features), "title_card"))
         scenes.append(_scene("cta", "cta", timings["cta"], brief["productName"], script["cta"], "title_card"))
     elif brief["mode"] == "product_showcase":
+        timings = _showcase_timings(brief, features)
         scenes.append(_scene("intro", "hook", timings["intro"], brief["productName"], script["hook"], "title_card"))
         scenes.extend(_split_section("feature", timings["feature"], features, "Feature Reveal", lambda feature: f"{_sentence(feature)} gets the spotlight."))
-        scenes.append(_scene("result", "result", timings["result"], "The Payoff", _payoff(brief["productName"], features), "title_card"))
+        scenes.append(_scene("result", "result", timings["result"], "The Payoff", _payoff(brief["productName"], features), "media"))
         scenes.append(_scene("cta", "cta", timings["cta"], brief["productName"], script["cta"], "title_card"))
     elif brief["mode"] == "promo_ad":
         scenes.append(_scene("hook", "hook", timings["hook"], "Problem?", script["hook"], "title_card"))
@@ -537,9 +543,21 @@ def _caption_layer(text: str, duration: float, style: dict[str, Any], width: int
         "captionMode": "smart",
         "safeZone": "title",
         "animation": {"in": "slideUp", "out": "fade", "duration": 0.18},
-        "items": smart_caption_items(text, duration=max(duration - 0.35, 1.0), max_words=5 if vertical else 7),
+        "items": _caption_items(
+            text,
+            duration=max(duration - 0.35, 1.0),
+            accent=style["accent"],
+            max_words=5 if vertical else 7,
+        ),
         "highlightColor": style["accent"],
     }
+
+
+def _caption_items(text: str, *, duration: float, accent: str, max_words: int) -> list[dict[str, Any]]:
+    items = smart_caption_items(text, duration=duration, max_words=max_words)
+    for item in items:
+        item["highlightColor"] = accent
+    return items
 
 
 def _progress_layer(style: dict[str, Any], duration: float, width: int, height: int) -> dict[str, Any]:
@@ -566,6 +584,29 @@ def _timings(brief: dict[str, Any]) -> dict[str, dict[str, float]]:
         timings[name] = {"start": round(cursor, 3), "end": round(end, 3), "duration": round(max(end - cursor, 0.2), 3)}
         cursor = end
     return timings
+
+
+def _showcase_timings(brief: dict[str, Any], features: list[str]) -> dict[str, dict[str, float]]:
+    total = float(brief["duration"])
+    feature_count = max(1, len(features[:5]) or 3)
+    intro = min(3.5, max(2.2, total * 0.07))
+    cta = min(3.5, max(2.2, total * 0.06))
+    result = min(6.0, max(3.0, total * 0.10))
+    feature = max(total - intro - result - cta, feature_count * 2.0)
+    cursor = 0.0
+    timings = {
+        "intro": {"start": cursor, "end": cursor + intro, "duration": intro},
+    }
+    cursor += intro
+    timings["feature"] = {"start": cursor, "end": cursor + feature, "duration": feature}
+    cursor += feature
+    timings["result"] = {"start": cursor, "end": cursor + result, "duration": result}
+    cursor += result
+    timings["cta"] = {"start": cursor, "end": total, "duration": max(total - cursor, 0.6)}
+    return {
+        key: {inner_key: round(inner_value, 3) for inner_key, inner_value in value.items()}
+        for key, value in timings.items()
+    }
 
 
 def _split_section(prefix: str, timing: dict[str, float], features: list[str], role: str, caption_fn: Any) -> list[dict[str, Any]]:
@@ -726,7 +767,7 @@ def _sync_plan_derivatives(plan: dict[str, Any]) -> dict[str, Any]:
     return plan
 
 
-def _select_media(assets_folder: Path | None, *, output_dir: Path, scene_duration: float) -> dict[str, Any]:
+def _select_media(assets_folder: Path | None, *, output_dir: Path, scene_duration: float, max_clips: int = 8) -> dict[str, Any]:
     if not assets_folder:
         return {"folder": None, "selected": [], "images": [], "warnings": []}
     assets_folder = assets_folder.resolve()
@@ -735,13 +776,54 @@ def _select_media(assets_folder: Path | None, *, output_dir: Path, scene_duratio
     warnings: list[str] = []
     selected: list[dict[str, Any]] = []
     try:
-        report = select_highlights(assets_folder, scene_duration=scene_duration, max_clips=8, output_path=output_dir / "clip_selection.json")
-        selected = report.get("selected", [])
+        report = select_highlights(assets_folder, scene_duration=scene_duration, max_clips=max_clips, output_path=output_dir / "clip_selection.json")
+        selected = _expand_selected_segments(report.get("selected", []), max_clips=max_clips, scene_duration=scene_duration)
         warnings.extend(report.get("warnings", []))
     except Exception as exc:
         warnings.append(f"Video highlight selection skipped: {exc}")
     images = [str(path.resolve()) for path in sorted(assets_folder.rglob("*")) if path.suffix.lower() in IMAGE_EXTENSIONS][:8]
     return {"folder": str(assets_folder), "selected": selected, "images": images, "warnings": warnings}
+
+
+def _expand_selected_segments(selected: list[dict[str, Any]], *, max_clips: int, scene_duration: float) -> list[dict[str, Any]]:
+    if not selected or max_clips <= len(selected):
+        return selected[:max_clips]
+    expanded: list[dict[str, Any]] = []
+    for clip in selected:
+        starts = _candidate_starts_for_clip(clip, scene_duration)
+        for start in starts:
+            clone = dict(clip)
+            clone["highlightStart"] = round(start, 3)
+            clone["highlightDuration"] = round(min(scene_duration, float(clip.get("duration", scene_duration) or scene_duration)), 3)
+            clone["highlightReason"] = "motion/intent segment" if start != float(clip.get("highlightStart", 0) or 0) else clip.get("highlightReason", "highlight segment")
+            expanded.append(clone)
+            if len(expanded) >= max_clips:
+                return expanded
+    return expanded or selected[:max_clips]
+
+
+def _candidate_starts_for_clip(clip: dict[str, Any], scene_duration: float) -> list[float]:
+    duration = float(clip.get("duration", 0) or 0)
+    max_start = max(duration - scene_duration, 0)
+    raw_candidates = [float(clip.get("highlightStart", 0) or 0)]
+    for spike in clip.get("motionSpikes", []) or []:
+        if isinstance(spike, dict):
+            raw_candidates.append(float(spike.get("time", 0) or 0) - scene_duration / 2)
+    if duration > 0:
+        quarters = [duration * 0.18, duration * 0.34, duration * 0.50, duration * 0.66, duration * 0.82]
+        raw_candidates.extend(time - scene_duration / 2 for time in quarters)
+    if duration > scene_duration * 4:
+        early_cutoff = min(max(scene_duration, 8.0), duration * 0.08)
+        later_candidates = [candidate for candidate in raw_candidates if candidate >= early_cutoff]
+        if later_candidates:
+            raw_candidates = later_candidates
+    starts: list[float] = []
+    for candidate in raw_candidates:
+        start = max(0.0, min(candidate, max_start))
+        if any(abs(start - existing) < max(scene_duration * 0.75, 1.5) for existing in starts):
+            continue
+        starts.append(start)
+    return starts
 
 
 def _analyze_music(music_path: Path | None, *, output_dir: Path) -> dict[str, Any] | None:
@@ -906,7 +988,10 @@ def _style_for(mode: str, tone: str, style: str | None, idea: str) -> str:
             raise ValueError(f"Unknown style '{style}'. Valid styles: {', '.join(list_styles())}")
         return key
     lower = idea.lower()
-    if "red" in lower or "cyber" in lower or "security" in lower:
+    tokens = _word_tokens(lower)
+    if "blue" in tokens and ("black" in tokens or "cyber" in tokens):
+        return "blue_black_cyber"
+    if "red" in tokens or "cyber" in tokens or "security" in tokens:
         return "red_black_aegis"
     if tone == "minimal" or mode == "tutorial":
         return "minimal_tech"
@@ -919,7 +1004,10 @@ def _style_for(mode: str, tone: str, style: str | None, idea: str) -> str:
 
 def _theme(style: str, tone: str, idea: str) -> dict[str, str]:
     lower = idea.lower()
-    if style == "red_black_aegis" or ("red" in lower and "black" in lower):
+    tokens = _word_tokens(lower)
+    if style == "blue_black_cyber" or ("blue" in tokens and ("black" in tokens or "cyber" in tokens)):
+        return {"background": "#020617", "accent": "#38bdf8", "secondary": "#dbeafe"}
+    if style == "red_black_aegis" or ("red" in tokens and "black" in tokens):
         return {"background": "#050000", "accent": "#ef4444", "secondary": "#f8fafc"}
     if style == "gaming_montage" or tone == "aggressive":
         return {"background": "#050000", "accent": "#f97316", "secondary": "#ef4444"}
@@ -928,6 +1016,10 @@ def _theme(style: str, tone: str, idea: str) -> dict[str, str]:
     if style == "luxury_promo":
         return {"background": "#090806", "accent": "#f5d46b", "secondary": "#ffffff"}
     return {"background": "#05070d", "accent": "#6db5a5", "secondary": "#f8fafc"}
+
+
+def _word_tokens(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", text.replace("_", " ").replace("/", " ")))
 
 
 def _goal_for(mode: str, product: str) -> str:
@@ -1019,6 +1111,8 @@ def _camera_for(style: dict[str, Any], scene: dict[str, Any]) -> dict[str, Any]:
 def _effect_preset(style: str) -> str:
     if style == "red_black_aegis":
         return "premium_red_black"
+    if style == "blue_black_cyber":
+        return "cinematic_polish"
     if style == "luxury_promo":
         return "soft_luxury"
     return "cinematic_polish"
@@ -1041,6 +1135,10 @@ def _apply_music_sync(timeline: list[dict[str, Any]], music_sync: dict[str, Any]
 def _media_scene_duration(plan: dict[str, Any]) -> float:
     media = [float(scene["duration"]) for scene in plan["scenePlan"] if scene.get("mediaRole") != "title_card"]
     return max(min(sum(media) / max(len(media), 1), 5.0), 1.5)
+
+
+def _media_scene_count(plan: dict[str, Any]) -> int:
+    return sum(1 for scene in plan.get("scenePlan", []) if scene.get("mediaRole") != "title_card")
 
 
 def _fit_title(text: str) -> str:

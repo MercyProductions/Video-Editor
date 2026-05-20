@@ -24,6 +24,12 @@ STYLE_PRESETS: dict[str, dict[str, Any]] = {
         "media": {"contrast": 1.16, "brightness": -0.02},
         "transition": {"type": "fadeToBlack", "duration": 0.35},
     },
+    "blue_black_cyber": {
+        "background": "#020617",
+        "text": {"color": "#38bdf8", "strokeColor": "#000000", "strokeWidth": 3, "shadowColor": "#000000"},
+        "media": {"contrast": 1.12, "brightness": -0.01},
+        "transition": {"type": "crossfade", "duration": 0.38},
+    },
     "vaporwave": {
         "background": "#17002e",
         "text": {"color": "#67e8f9", "strokeColor": "#f472b6", "strokeWidth": 2, "shadowColor": "#000000"},
@@ -59,6 +65,10 @@ ALIASES = {
     "red/black aegis": "red_black_aegis",
     "red black aegis": "red_black_aegis",
     "aegis": "red_black_aegis",
+    "blue/black cyber": "blue_black_cyber",
+    "blue black cyber": "blue_black_cyber",
+    "blue_black_cyber": "blue_black_cyber",
+    "blue black": "blue_black_cyber",
     "minimal tech": "minimal_tech",
     "horror glitch": "horror_glitch",
     "horror/glitch": "horror_glitch",

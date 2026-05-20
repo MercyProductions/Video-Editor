@@ -287,7 +287,7 @@ def run_beginner_auto_template(
         logo_path=logo_path.resolve() if logo_path else None,
         duration=duration,
         tone=preset.tone,
-        style=preset.style,
+        style=_style_for_beginner_vibe(desired_vibe, preset.style),
         approved=render and quality == "final",
         render=render,
         quality=quality,
@@ -451,6 +451,15 @@ def _clean_features(features: list[str], goal: str) -> list[str]:
         return clean[:8]
     words = [part.strip(" .") for part in goal.replace(";", ",").split(",") if part.strip()]
     return words[:5] or ["core workflow", "key feature", "final result"]
+
+
+def _style_for_beginner_vibe(desired_vibe: str, template_style: str) -> str:
+    tokens = set(desired_vibe.lower().replace("_", " ").replace("/", " ").split())
+    if "blue" in tokens and ("black" in tokens or "cyber" in tokens):
+        return "blue_black_cyber"
+    if "red" in tokens and ("black" in tokens or "cyber" in tokens):
+        return "red_black_aegis"
+    return template_style
 
 
 def _annotate_project(project_path: Path, preset: BeginnerTemplate, staged: dict[str, Any], *, desired_vibe: str, target_platform: str, smart_defaults: dict[str, Any]) -> None:

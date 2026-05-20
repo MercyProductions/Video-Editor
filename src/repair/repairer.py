@@ -33,7 +33,16 @@ VALID_ANIMATIONS = {
     "typewriter",
 }
 VALID_PRESETS = {"youtube_1080p", "tiktok_reels", "shorts", "square", "discord_720p", "cinematic_4k"}
-VALID_STYLES = {"clean_cinematic", "gaming_montage", "red_black_aegis", "vaporwave", "minimal_tech", "horror_glitch", "luxury_promo"}
+VALID_STYLES = {
+    "clean_cinematic",
+    "gaming_montage",
+    "red_black_aegis",
+    "blue_black_cyber",
+    "vaporwave",
+    "minimal_tech",
+    "horror_glitch",
+    "luxury_promo",
+}
 
 
 def _error_lines(data: dict[str, Any]) -> list[str]:

@@ -286,7 +286,7 @@ function registerIpc() {
         "tutorial_video"
       ],
       presets: ["youtube_1080p", "tiktok_reels", "shorts", "square", "discord_720p", "cinematic_4k", "instagram_reels", "high_quality_archive", "low_size_preview"],
-      styles: ["clean_cinematic", "gaming_montage", "red_black_aegis", "vaporwave", "minimal_tech", "horror_glitch", "luxury_promo"]
+      styles: ["clean_cinematic", "gaming_montage", "red_black_aegis", "blue_black_cyber", "vaporwave", "minimal_tech", "horror_glitch", "luxury_promo"]
     };
   });
 
@@ -1657,6 +1657,7 @@ function projectSignalsFromObject(project: Record<string, unknown>, source?: str
 
 function promptSignalsFromText(text: string): WorkflowSignals {
   const lower = text.toLowerCase();
+  const tokens = wordTokens(lower);
   const signals: WorkflowSignals = {};
   if (/desktop|screen recording|screen capture|obs|window|dashboard|software|app demo|login|scan/.test(lower)) signals.mediaKind = "desktop_recording";
   if (/game|gameplay|kill|montage|facecam|explosion|reaction/.test(lower)) signals.mediaKind = "gameplay";
@@ -1668,7 +1669,8 @@ function promptSignalsFromText(text: string): WorkflowSignals {
   if (/fast|aggressive|hype|punchy/.test(lower)) signals.motionIntensity = "high";
   if (/minimal|clean|calm|readable/.test(lower)) signals.motionIntensity = "low";
   if (/caption|subtitle|text heavy/.test(lower)) signals.captionDensity = "high";
-  if (/red.?black|cyber|security|hacker/.test(lower)) signals.lightingProfile = "red_black_cyber";
+  if (tokens.has("blue") && (tokens.has("black") || tokens.has("cyber"))) signals.lightingProfile = "blue_black_cyber";
+  else if ((tokens.has("red") && tokens.has("black")) || tokens.has("cyber") || tokens.has("security") || tokens.has("hacker")) signals.lightingProfile = "red_black_cyber";
   if (/luxury|premium/.test(lower)) signals.lightingProfile = signals.lightingProfile || "premium_soft";
   signals.hookStyle = hookStyleFromText(text);
   return signals;
@@ -1958,12 +1960,18 @@ function hookStyleFromText(text: string) {
 
 function lightingProfileFromProject(project: Record<string, unknown>, desiredVibe: unknown) {
   const text = `${String(project.stylePreset || "")} ${String(desiredVibe || "")} ${JSON.stringify(project.metadata || {})}`.toLowerCase();
-  if (/red.?black|cyber|hacker/.test(text)) return "red_black_cyber";
+  const tokens = wordTokens(text);
+  if (tokens.has("blue") && (tokens.has("black") || tokens.has("cyber"))) return "blue_black_cyber";
+  if ((tokens.has("red") && tokens.has("black")) || tokens.has("cyber") || tokens.has("hacker")) return "red_black_cyber";
   if (/luxury|premium/.test(text)) return "premium_soft";
   if (/vapor/.test(text)) return "vaporwave";
   if (/horror|glitch/.test(text)) return "horror_glitch";
   if (/minimal|clean/.test(text)) return "minimal_clean";
   return undefined;
+}
+
+function wordTokens(text: string) {
+  return new Set((text.replace(/[_/]+/g, " ").match(/[a-z0-9]+/g) || []));
 }
 
 async function readRecoveryPoints(dir: string) {

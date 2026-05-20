@@ -4947,6 +4947,7 @@ function productNameFromPrompt(prompt: string) {
 function vibeFromPrompt(prompt: string) {
   const lower = prompt.toLowerCase();
   const parts = [];
+  if (lower.includes("blue") && lower.includes("black")) parts.push("blue black");
   if (lower.includes("red") && lower.includes("black")) parts.push("red black");
   if (lower.includes("cinematic")) parts.push("cinematic");
   if (lower.includes("premium")) parts.push("premium");

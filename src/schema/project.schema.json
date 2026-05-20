@@ -16,7 +16,7 @@
     },
     "stylePreset": {
       "type": "string",
-      "enum": ["clean_cinematic", "gaming_montage", "red_black_aegis", "vaporwave", "minimal_tech", "horror_glitch", "luxury_promo"]
+      "enum": ["clean_cinematic", "gaming_montage", "red_black_aegis", "blue_black_cyber", "vaporwave", "minimal_tech", "horror_glitch", "luxury_promo"]
     },
     "brandKit": {
       "type": "object",
