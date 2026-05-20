@@ -113,6 +113,18 @@ type GenerationReviewState = {
   scenes: Array<{ key: string; label: string; caption?: string; status?: string }>;
   reasoning?: string;
 };
+type PendingAiPlan = {
+  source: "quick" | "prompt" | "youtubeShort" | "content" | "director";
+  title: string;
+  prompt: string;
+  text: string;
+  path: string | null;
+  data: Record<string, unknown>;
+  review: GenerationReviewState;
+  preset: string;
+  form?: BeginnerFormState;
+  renderQuality?: "preview" | "final";
+};
 type WorkflowContext = {
   breadcrumbs: string[];
   title: string;
@@ -535,6 +547,7 @@ function App() {
   const [contentMode, setContentMode] = useState("youtube_shorts");
   const [contentTone, setContentTone] = useState("cinematic");
   const [generationReview, setGenerationReview] = useState<GenerationReviewState | null>(null);
+  const [pendingAiPlan, setPendingAiPlan] = useState<PendingAiPlan | null>(null);
   const [generationPlanPath, setGenerationPlanPath] = useState<string | null>(null);
   const [generationLocks, setGenerationLocks] = useState<string[]>([]);
   const [directorGoal, setDirectorGoal] = useState("Make this feel like a fast gaming montage");
@@ -1123,19 +1136,28 @@ function App() {
         vibe: quick.vibe,
         duration: quick.duration,
         quality: renderQuality,
-        render: true,
+        render: false,
         cache: true
       });
       if (result.ok && result.text) {
         const sceneCount = parseProject(result.text).data?.timeline?.length || 0;
-        setProjectText(result.text);
-        setProjectPath(result.path || null);
-        setBeginnerSummary(result.data || null);
-        const outputs = result.data?.outputs as Record<string, unknown> | undefined;
-        const renderedVideo = typeof outputs?.renderedVideo === "string" ? outputs.renderedVideo : null;
-        if (renderedVideo) setPreviewPath(renderedVideo);
         const presetValue = quick.targetPlatform === "youtube" ? "youtube_1080p" : quick.targetPlatform === "tiktok" ? "tiktok_reels" : quick.targetPlatform;
-        setPreset(presetValue);
+        const reviewState = reviewFromProjectText(result.text, result.data || {}, result.path || null, `Create a ${quick.targetPlatform} edit for ${quick.productName}.`);
+        const pendingPlan: PendingAiPlan = {
+          source: "quick",
+          title: "AI Edit Plan",
+          prompt: formToUse.quickPrompt,
+          text: result.text,
+          path: result.path || null,
+          data: result.data || {},
+          review: reviewState,
+          preset: presetValue,
+          form: formToUse,
+          renderQuality
+        };
+        setPendingAiPlan(pendingPlan);
+        setGenerationReview(reviewState);
+        setBeginnerSummary(result.data || null);
         void recordAdaptiveEvent({
           event: "beginner_auto_video",
           template: quick.template,
@@ -1146,17 +1168,18 @@ function App() {
           pacing: selectedPacingForTemplate(quick.template),
           mediaPath: quick.mediaFile || quick.assetFolder || quick.imageFolder || null,
           prompt: formToUse.quickPrompt,
-          note: renderQuality
+          note: `${renderQuality}_plan_review`
         });
-        setStatus(renderQuality === "final" ? "Beginner final video rendered" : "Beginner preview video rendered");
+        setStatus("AI edit plan ready for review");
         updateProcessing({
-          currentStage: "Auto video ready",
-          activeTask: renderQuality === "final" ? "Final MP4 rendered" : "Preview rendered",
+          currentStage: "AI plan ready",
+          activeTask: "Review before applying to timeline",
           progress: 100,
           currentScene: `${sceneCount} scenes generated`
-        }, `Built ${sceneCount} auto-video scenes`, "success", renderedVideo || undefined);
+        }, `Built ${sceneCount} proposed scenes`, "success", "Review the plan, then apply it to the timeline.");
         setUiMode("beginner");
         setActiveTab("beginner");
+        setAppModal("aiReview");
         setRecent(await window.ave.getRecentProjects());
       } else {
         setStatus(result.stderr || result.stdout || "Beginner Auto Video failed");
@@ -1208,16 +1231,94 @@ function App() {
     setGuidedStep(6);
   }
 
+  function applyPendingAiPlan() {
+    if (!pendingAiPlan) {
+      setStatus("No AI plan is waiting for approval.");
+      return;
+    }
+    setProjectText(pendingAiPlan.text);
+    setProjectPath(pendingAiPlan.path);
+    setPreset(pendingAiPlan.preset);
+    setGenerationReview(pendingAiPlan.review);
+    setGenerationPlanPath(pendingAiPlan.review.planPath);
+    if (pendingAiPlan.source === "quick" && pendingAiPlan.form) {
+      setBeginnerForm(pendingAiPlan.form);
+      setBeginnerSummary(pendingAiPlan.data || null);
+      setUiMode("beginner");
+      setActiveTab("beginner");
+    } else {
+      setUiMode("advanced");
+      setActiveTab("editor");
+    }
+    setAiNotes(simplePlanExplanation(pendingAiPlan));
+    setStatus("AI plan applied to timeline");
+    setPendingAiPlan(null);
+    setAppModal(null);
+  }
+
+  function editPendingAiPlan() {
+    if (pendingAiPlan?.source === "quick") {
+      if (pendingAiPlan.form) setBeginnerForm(pendingAiPlan.form);
+      setUiMode("beginner");
+      setActiveTab("beginner");
+      setAppModal(null);
+    } else {
+      setAppModal("ai");
+    }
+    setStatus("Edit the instructions, then regenerate the plan.");
+  }
+
+  async function regeneratePendingAiPlan() {
+    const plan = pendingAiPlan;
+    if (!plan) {
+      setStatus("No AI plan is waiting to regenerate.");
+      return;
+    }
+    const source = plan.source;
+    const form = plan.form;
+    setPendingAiPlan(null);
+    if (source === "quick") {
+      await generateBeginnerAutoVideo(plan.renderQuality || "preview", form || beginnerForm);
+    } else if (source === "youtubeShort") {
+      await generateYouTubeShort();
+    } else if (source === "content") {
+      await generateContentMode("full");
+    } else if (source === "director") {
+      await runDirector();
+    } else {
+      await generateFromPrompt();
+    }
+  }
+
+  async function savePendingAiPlanAsTemplate() {
+    if (!pendingAiPlan) {
+      setStatus("No AI plan is available to save.");
+      return;
+    }
+    const saved = await window.ave.saveProjectAs({ text: pendingAiPlan.text });
+    setStatus(saved ? `Saved AI plan as reusable project template: ${saved.name}` : "Template save canceled");
+  }
+
   async function generateFromPrompt() {
     beginProcessing("Prompt JSON", "Generating project JSON", prompt);
     const result = await window.ave.aiGenerate({ prompt });
     if (result.ok && result.text) {
-      setProjectText(result.text);
-      setProjectPath(null);
-      setStatus("AI project generated");
+      const reviewState = reviewFromProjectText(result.text, {}, result.path || null, "AI generated a project from your prompt.");
+      setPendingAiPlan({
+        source: "prompt",
+        title: "AI Edit Plan",
+        prompt,
+        text: result.text,
+        path: result.path || null,
+        data: {},
+        review: reviewState,
+        preset
+      });
+      setGenerationReview(reviewState);
+      setStatus("AI edit plan ready for review");
       setUiMode("advanced");
-      setActiveTab("timeline");
-      finishProcessing("Prompt JSON generated", "success");
+      setAppModal("aiReview");
+      finishProcessing("Prompt plan generated", "success");
     } else {
       setStatus(result.stderr || result.stdout || "AI generation failed");
       finishProcessing("Prompt JSON failed", "error");
@@ -1228,17 +1329,26 @@ function App() {
     beginProcessing("YouTube Short", "Creating hook/body/outro structure", prompt);
     const result = await window.ave.youtubeShort({ prompt, style: "auto" });
     if (result.ok && result.text) {
-      setProjectText(result.text);
-      setProjectPath(result.path || null);
-      setPreset("shorts");
       const hook = typeof result.data?.hook === "string" ? result.data.hook : "Short generated";
       const duration = typeof result.data?.duration === "number" ? `${result.data.duration}s` : "vertical";
-      setAiNotes(`YouTube Short ready.\nHook: ${hook}\nDuration: ${duration}\nRender preset: shorts`);
-      setStatus("YouTube Short generated");
+      const reviewState = reviewFromProjectText(result.text, result.data || {}, result.path || null, `YouTube Short plan. Hook: ${hook}`);
+      setPendingAiPlan({
+        source: "youtubeShort",
+        title: "AI Edit Plan",
+        prompt,
+        text: result.text,
+        path: result.path || null,
+        data: result.data || {},
+        review: reviewState,
+        preset: "shorts"
+      });
+      setGenerationReview(reviewState);
+      setAiNotes(`YouTube Short plan ready.\nHook: ${hook}\nDuration: ${duration}\nReview it before applying to the timeline.`);
+      setStatus("YouTube Short plan ready for review");
       setUiMode("advanced");
-      setActiveTab("timeline");
+      setAppModal("aiReview");
       updateProcessing({ currentStage: "Short plan ready", progress: 100, currentScene: `${parseProject(result.text).data?.timeline?.length || "Generated"} scenes` }, "Generated YouTube Short plan", "success", hook);
-      finishProcessing("YouTube Short generated", "success");
+      finishProcessing("YouTube Short plan generated", "success");
     } else {
       setStatus(result.stderr || result.stdout || "YouTube Short generation failed");
       finishProcessing("YouTube Short failed", "error");
@@ -1257,24 +1367,32 @@ function App() {
       locks: generationLocks
     });
     if (result.ok && result.text) {
-      setProjectText(result.text);
-      setProjectPath(result.path || null);
       const presetValue = typeof result.data?.targetPlatform === "string" && result.data.targetPlatform === "tiktok" ? "tiktok_reels" : "shorts";
-      setPreset(presetValue);
       const hook = typeof result.data?.hook === "string" ? result.data.hook : "Content generated";
       const duration = typeof result.data?.duration === "number" ? `${result.data.duration}s` : "generated";
       const planPath = typeof result.data?.contentPlanPath === "string" ? result.data.contentPlanPath : null;
       setGenerationPlanPath(planPath);
       const reviewState = readGenerationReview(result.data || {}, planPath);
-      setGenerationReview(reviewState);
+      const fallbackReview = reviewState.scenes.length ? reviewState : reviewFromProjectText(result.text, result.data || {}, planPath, `Content plan. Hook: ${hook}`);
+      setPendingAiPlan({
+        source: "content",
+        title: "AI Edit Plan",
+        prompt,
+        text: result.text,
+        path: result.path || null,
+        data: result.data || {},
+        review: fallbackReview,
+        preset: presetValue
+      });
+      setGenerationReview(fallbackReview);
       setAiNotes(`Content plan ready for review.\nMode: ${contentMode}\nHook: ${hook}\nDuration: ${duration}\nApprove sections before final export.`);
       setStatus(regenerate === "full" ? "Content review plan generated" : `Regenerated ${regenerate}`);
       setUiMode("advanced");
-      setActiveTab("timeline");
+      setAppModal("aiReview");
       updateProcessing({
         currentStage: "Review plan ready",
         progress: 100,
-        currentScene: `${reviewState.scenes.length || "Generated"} review scenes`
+        currentScene: `${fallbackReview.scenes.length || "Generated"} review scenes`
       }, "Generated reviewable scene plan", "success", hook);
       finishProcessing("Content generation complete", "success");
     } else {
@@ -1296,34 +1414,42 @@ function App() {
       vibe: contentTone,
       duration: beginnerForm.duration || null,
       variants: 4,
-      renderPreview: true,
+      renderPreview: false,
       quality: "preview",
       cache: true
     });
     if (result.ok && result.text) {
-      setProjectText(result.text);
-      setProjectPath(result.path || null);
       const planPath = typeof result.data?.contentPlanPath === "string" ? result.data.contentPlanPath : null;
       setGenerationPlanPath(planPath);
-      setGenerationReview(readGenerationReview(result.data || {}, planPath));
-      const previewVideo = typeof result.data?.previewVideo === "string" ? result.data.previewVideo : null;
-      if (previewVideo) setPreviewPath(previewVideo);
+      const reviewState = readGenerationReview(result.data || {}, planPath);
+      const fallbackReview = reviewState.scenes.length ? reviewState : reviewFromProjectText(result.text, result.data || {}, planPath, "Autonomous pipeline prepared a reviewable edit plan.");
+      setGenerationReview(fallbackReview);
       const planning = result.data?.planning as Record<string, unknown> | undefined;
       const qualityReview = result.data?.qualityReview as Record<string, unknown> | undefined;
       const hook = typeof planning?.hookStrategy === "string" ? planning.hookStrategy : "autonomous structure";
       const score = typeof qualityReview?.readinessScore === "number" ? qualityReview.readinessScore : null;
       const reasoning = typeof result.data?.reasoning === "string" ? result.data.reasoning : typeof result.data?.reasoning === "undefined" && typeof result.data?.review === "object" ? "" : "";
       const explanation = typeof result.data?.reasoning === "string" ? result.data.reasoning : typeof result.data?.explainabilityTextPath === "string" ? `Explainability written to ${result.data.explainabilityTextPath}` : "";
+      setPendingAiPlan({
+        source: "content",
+        title: "AI Edit Plan",
+        prompt,
+        text: result.text,
+        path: result.path || null,
+        data: result.data || {},
+        review: fallbackReview,
+        preset
+      });
       setAiNotes(`Autonomous production plan ready.\nHook strategy: ${hook}\nReadiness: ${score ?? "review needed"}/100\n${explanation || reasoning || "Review and approve sections before final export."}`);
-      setStatus("Autonomous production pipeline generated");
+      setStatus("Autonomous production plan ready for review");
       setUiMode("advanced");
-      setActiveTab(previewVideo ? "preview" : "timeline");
+      setAppModal("aiReview");
       updateProcessing({
         currentStage: "Autonomous plan ready",
-        activeTask: "Preview, review packet, variants, and quality report generated",
+        activeTask: "Review packet, variants, and quality report generated",
         progress: 100,
         currentScene: `${parseProject(result.text).data?.timeline?.length || "Generated"} scenes`
-      }, "Autonomous production pipeline complete", "success", previewVideo || undefined);
+      }, "Autonomous production plan complete", "success", "Review before applying to timeline.");
       void recordAdaptiveEvent({
         event: "autonomous_pipeline",
         targetPlatform: platformValue,
@@ -1447,13 +1573,24 @@ function App() {
     beginProcessing("AI Director", "Analyzing project pacing", directorGoal);
     const result = await window.ave.runDirector({ text: projectText, projectPath, goal: directorGoal });
     if (result.ok && result.text) {
-      setProjectText(result.text);
-      setDirectorReport(result.report || null);
-      setAiNotes(String(result.report?.summary || "AI Director pass complete."));
-      setStatus("AI Director updated the project");
-      if (projectPath) setHistory(await window.ave.listHistory({ projectPath }));
-      setActiveTab("director");
-      finishProcessing("AI Director pass complete", "success");
+      const data = result.report || {};
+      const reviewState = reviewFromProjectText(result.text, data, result.path || projectPath || null, String(data.summary || "AI Director prepared an edit plan."));
+      setPendingAiPlan({
+        source: "director",
+        title: "AI Edit Plan",
+        prompt: directorGoal,
+        text: result.text,
+        path: result.path || projectPath || null,
+        data,
+        review: reviewState,
+        preset
+      });
+      setDirectorReport(data);
+      setGenerationReview(reviewState);
+      setAiNotes(String(data.summary || "AI Director plan ready. Review before applying to the timeline."));
+      setStatus("AI Director plan ready for review");
+      setAppModal("aiReview");
+      finishProcessing("AI Director plan ready", "success");
     } else {
       setStatus(result.stderr || result.stdout || "AI Director failed");
       finishProcessing("AI Director failed", "error");
@@ -2502,6 +2639,7 @@ function App() {
         contentTone={contentTone}
         setContentTone={setContentTone}
         generationReview={generationReview}
+        pendingAiPlan={pendingAiPlan}
         generationLocks={generationLocks}
         aiNotes={aiNotes}
         onImport={importAssets}
@@ -2516,6 +2654,11 @@ function App() {
         onContentRegenerate={(target) => generateContentMode(target)}
         onContentApprove={(section, statusValue) => approveGeneratedPlan(section, statusValue)}
         onContentLock={lockGenerationSection}
+        onApplyPendingPlan={applyPendingAiPlan}
+        onEditPendingPlan={editPendingAiPlan}
+        onRegeneratePendingPlan={() => { void regeneratePendingAiPlan(); }}
+        onSavePendingPlan={savePendingAiPlanAsTemplate}
+        onCancelPendingPlan={() => { setPendingAiPlan(null); setAppModal(null); setStatus("AI plan canceled"); }}
         onExplain={() => project && setAiNotes(explainProject(project))}
         onRepair={repair}
         onDirector={runDirector}
@@ -3304,6 +3447,7 @@ function EditorModal({
   contentTone,
   setContentTone,
   generationReview,
+  pendingAiPlan,
   generationLocks,
   aiNotes,
   onImport,
@@ -3318,6 +3462,11 @@ function EditorModal({
   onContentRegenerate,
   onContentApprove,
   onContentLock,
+  onApplyPendingPlan,
+  onEditPendingPlan,
+  onRegeneratePendingPlan,
+  onSavePendingPlan,
+  onCancelPendingPlan,
   onExplain,
   onRepair,
   onDirector,
@@ -3378,6 +3527,7 @@ function EditorModal({
   contentTone: string;
   setContentTone: (value: string) => void;
   generationReview: GenerationReviewState | null;
+  pendingAiPlan: PendingAiPlan | null;
   generationLocks: string[];
   aiNotes: string;
   onImport: () => void;
@@ -3392,6 +3542,11 @@ function EditorModal({
   onContentRegenerate: (target: string) => void;
   onContentApprove: (section?: string, statusValue?: string) => void;
   onContentLock: (section: string) => void;
+  onApplyPendingPlan: () => void;
+  onEditPendingPlan: () => void;
+  onRegeneratePendingPlan: () => void;
+  onSavePendingPlan: () => void;
+  onCancelPendingPlan: () => void;
   onExplain: () => void;
   onRepair: () => void;
   onDirector: () => void;
@@ -3493,53 +3648,21 @@ function EditorModal({
             />
           )}
           {modal === "aiReview" && (
-            <div className="review-modal">
-              {generationReview ? (
-                <>
-                  <section className="wide-panel">
-                    <h2><Sparkles size={16} /> Proposed AI Plan</h2>
-                    <p>{generationReview.hook}</p>
-                    <div className="review-meta">
-                      <span>{generationReview.style}</span>
-                      <span>{generationReview.tone}</span>
-                      <span>{generationReview.duration ? `${generationReview.duration}s` : "duration pending"}</span>
-                    </div>
-                  </section>
-                  <section className="wide-panel">
-                    <h2><ListVideo size={16} /> Scene Plan</h2>
-                    <div className="review-scenes">
-                      {generationReview.scenes.map((scene) => (
-                        <button key={scene.key} onClick={() => onContentLock(scene.key)}>
-                          <span>{scene.label}</span>
-                          <small>{scene.caption || scene.status || "needs review"}</small>
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-                  <section className="wide-panel">
-                    <h2><Bot size={16} /> AI Reasoning</h2>
-                    <p className="muted">{generationReview.reasoning || aiNotes || "Reasoning appears after the AI creates or explains a plan."}</p>
-                    {generationReview.warnings.length > 0 && <p className="error">{generationReview.warnings.join(" | ")}</p>}
-                    <div className="review-actions">
-                      <button onClick={() => onContentApprove("all", "approved")}><CheckCircle2 size={14} /> Approve plan</button>
-                      <button onClick={() => onContentRegenerate("hook")}><RefreshCw size={14} /> Regenerate hook</button>
-                      <button onClick={() => onContentRegenerate("captions")}><Captions size={14} /> Regenerate captions</button>
-                      <button onClick={() => onContentRegenerate("scenes")}><ListVideo size={14} /> Regenerate scenes</button>
-                    </div>
-                  </section>
-                </>
-              ) : (
-                <section className="wide-panel">
-                  <h2><Sparkles size={16} /> No AI plan yet</h2>
-                  <p className="muted">Generate a plan first, then review scenes, captions, timing, style, and warnings here before applying to the timeline.</p>
-                  <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
-                  <div className="review-actions">
-                    <button onClick={onContentGenerate}><ListVideo size={15} /> Generate content plan</button>
-                    <button onClick={onGenerate}><Sparkles size={15} /> Prompt to JSON</button>
-                  </div>
-                </section>
-              )}
-            </div>
+            <AiPlanReviewModal
+              pendingAiPlan={pendingAiPlan}
+              fallbackReview={generationReview}
+              prompt={prompt}
+              setPrompt={setPrompt}
+              aiNotes={aiNotes}
+              onGenerate={onContentGenerate}
+              onPromptJson={onGenerate}
+              onApply={onApplyPendingPlan}
+              onEdit={onEditPendingPlan}
+              onRegenerate={onRegeneratePendingPlan}
+              onSaveTemplate={onSavePendingPlan}
+              onCancel={onCancelPendingPlan}
+              onLockScene={onContentLock}
+            />
           )}
           {modal === "templates" && (
             <div className="template-modal-grid">
@@ -3705,6 +3828,130 @@ function EditorModal({
               </div>
             </div>
           )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function AiPlanReviewModal({
+  pendingAiPlan,
+  fallbackReview,
+  prompt,
+  setPrompt,
+  aiNotes,
+  onGenerate,
+  onPromptJson,
+  onApply,
+  onEdit,
+  onRegenerate,
+  onSaveTemplate,
+  onCancel,
+  onLockScene
+}: {
+  pendingAiPlan: PendingAiPlan | null;
+  fallbackReview: GenerationReviewState | null;
+  prompt: string;
+  setPrompt: (value: string) => void;
+  aiNotes: string;
+  onGenerate: () => void;
+  onPromptJson: () => void;
+  onApply: () => void;
+  onEdit: () => void;
+  onRegenerate: () => void;
+  onSaveTemplate: () => void;
+  onCancel: () => void;
+  onLockScene: (scene: string) => void;
+}) {
+  const parsedPending = pendingAiPlan ? parseProject(pendingAiPlan.text).data : null;
+  const review = pendingAiPlan?.review || fallbackReview;
+  const details = pendingAiPlan && parsedPending ? buildAiPlanDisplay(pendingAiPlan, parsedPending) : null;
+
+  if (!pendingAiPlan || !details) {
+    return (
+      <div className="review-modal">
+        <section className="wide-panel">
+          <h2><Sparkles size={16} /> No AI plan yet</h2>
+          <p className="muted">Ask AI what to make. The generated edit will appear here first as a plain-English plan, before anything changes on the timeline.</p>
+          <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+          <div className="review-actions">
+            <button onClick={onGenerate}><ListVideo size={15} /> Generate AI plan</button>
+            <button onClick={onPromptJson}><Sparkles size={15} /> Prompt to plan</button>
+            <button onClick={onCancel}><X size={15} /> Cancel</button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="review-modal ai-plan-review">
+      <section className="wide-panel ai-plan-hero">
+        <div>
+          <span className="eyebrow">{pendingAiPlan.title}</span>
+          <h2><Sparkles size={17} /> AI Edit Plan</h2>
+          <p>{details.explanation}</p>
+        </div>
+        <div className="review-actions">
+          <button className="primary-create" onClick={onApply}><CheckCircle2 size={14} /> Apply Plan</button>
+          <button onClick={onEdit}><Wand2 size={14} /> Edit Plan</button>
+          <button onClick={onRegenerate}><RefreshCw size={14} /> Regenerate</button>
+          <button onClick={onSaveTemplate}><Save size={14} /> Save as Template</button>
+          <button onClick={onCancel}><X size={14} /> Cancel</button>
+        </div>
+      </section>
+
+      <section className="wide-panel">
+        <h2><ListVideo size={16} /> Plan Summary</h2>
+        <div className="ai-plan-summary-grid">
+          {details.summary.map((item) => (
+            <span key={item.label}>
+              {item.label}
+              <strong>{item.value}</strong>
+            </span>
+          ))}
+        </div>
+      </section>
+
+      <section className="wide-panel">
+        <h2><Bot size={16} /> Simple Explanation</h2>
+        <p className="muted">{review?.reasoning || aiNotes || details.reasoning}</p>
+        {review?.warnings.length ? <p className="error">{review.warnings.join(" | ")}</p> : null}
+      </section>
+
+      <section className="wide-panel">
+        <h2><Scissors size={16} /> Detected Highlights And Suggested Cuts</h2>
+        <div className="ai-plan-columns">
+          <div>
+            <strong>Detected highlights</strong>
+            {details.highlights.map((item) => <span key={item}>{item}</span>)}
+          </div>
+          <div>
+            <strong>Suggested cuts</strong>
+            {details.cuts.map((item) => <span key={item}>{item}</span>)}
+          </div>
+        </div>
+      </section>
+
+      <section className="wide-panel">
+        <h2><MonitorPlay size={16} /> Scene-by-scene Breakdown</h2>
+        <div className="scene-breakdown-list">
+          {details.scenes.map((scene, index) => (
+            <article key={scene.id}>
+              <div className="scene-breakdown-header">
+                <strong>Scene {index + 1}: {scene.name}</strong>
+                <button onClick={() => onLockScene(scene.id)}>Lock</button>
+              </div>
+              <div className="scene-breakdown-grid">
+                <span>Time range <strong>{scene.timeRange}</strong></span>
+                <span>Purpose <strong>{scene.purpose}</strong></span>
+                <span>Caption text <strong>{scene.caption}</strong></span>
+                <span>Effect <strong>{scene.effect}</strong></span>
+                <span>Transition <strong>{scene.transition}</strong></span>
+                <span>Notes <strong>{scene.notes}</strong></span>
+              </div>
+            </article>
+          ))}
         </div>
       </section>
     </div>
@@ -6772,6 +7019,159 @@ function packageTitleForProject(project: ProjectData) {
   const content = metadata.contentGenerator as Record<string, unknown> | undefined;
   const brief = content?.contentBrief as Record<string, unknown> | undefined;
   return String(brief?.productName || metadata.productName || metadata.title || "Auto Video");
+}
+
+function reviewFromProjectText(text: string, data: Record<string, unknown>, planPath: string | null, reasoning: string): GenerationReviewState {
+  const parsedProject = parseProject(text).data;
+  if (!parsedProject) return readGenerationReview(data, planPath);
+  const projectReview = projectToReviewState(parsedProject, planPath, reasoning);
+  const existingReview = readGenerationReview(data, planPath);
+  return {
+    ...projectReview,
+    hook: existingReview.hook || projectReview.hook,
+    style: existingReview.style || projectReview.style,
+    tone: existingReview.tone || projectReview.tone,
+    duration: existingReview.duration || projectReview.duration,
+    readyForFinalRender: existingReview.readyForFinalRender,
+    unresolved: existingReview.unresolved.length ? existingReview.unresolved : projectReview.unresolved,
+    warnings: existingReview.warnings.length ? existingReview.warnings : projectReview.warnings,
+    scenes: existingReview.scenes.length ? existingReview.scenes : projectReview.scenes,
+    reasoning: existingReview.reasoning || reasoning
+  };
+}
+
+function projectToReviewState(project: ProjectData, planPath: string | null, reasoning: string): GenerationReviewState {
+  const scenes = project.timeline || [];
+  const metadata = project.metadata || {};
+  const beginner = metadata.beginnerAutoTemplate as Record<string, unknown> | undefined;
+  const beginnerTemplate = beginner?.template as Record<string, unknown> | undefined;
+  return {
+    planPath,
+    hook: sceneCaptionText(scenes[0] as SceneData) || firstTextLayerValue(project) || "Opening hook",
+    style: String(project.stylePreset || metadata.stylePreset || beginner?.desiredVibe || beginnerTemplate?.name || "Auto style"),
+    tone: String(metadata.tone || "creator-friendly"),
+    duration: totalTimelineDuration(project),
+    readyForFinalRender: false,
+    unresolved: scenes.map((scene) => scene.id).filter(Boolean).slice(0, 8),
+    warnings: [],
+    scenes: scenes.slice(0, 8).map((scene, index) => ({
+      key: scene.id || `scene_${index + 1}`,
+      label: scene.id || `Scene ${index + 1}`,
+      caption: sceneCaptionText(scene as SceneData) || undefined,
+      status: "needs_review"
+    })),
+    reasoning
+  };
+}
+
+function buildAiPlanDisplay(plan: PendingAiPlan, project: ProjectData) {
+  const metadata = project.metadata || {};
+  const beginner = metadata.beginnerAutoTemplate as Record<string, unknown> | undefined;
+  const beginnerTemplate = beginner?.template as Record<string, unknown> | undefined;
+  const settings = project.project || {};
+  const scenes = project.timeline || [];
+  const duration = totalTimelineDuration(project);
+  const transitionTypes = [...new Set(scenes.map((scene) => String(scene.transitionOut?.type || "cut")).filter(Boolean))];
+  const audioTracks = project.audio || [];
+  const captionStyle = String(beginnerTemplate?.captionStyle || inferCaptionStyle(project));
+  const style = plan.review.style || String(project.stylePreset || beginner?.desiredVibe || "clean cinematic");
+  const targetPlatform = String(project.exportPreset || settings.exportPreset || beginner?.targetPlatform || plan.preset);
+  const explanation = simplePlanExplanation(plan);
+  const summary = [
+    { label: "Target platform", value: targetPlatform },
+    { label: "Final duration", value: `${duration.toFixed(1)}s` },
+    { label: "Style", value: style },
+    { label: "Caption style", value: captionStyle },
+    { label: "Music / sound", value: audioTracks.length ? `${audioTracks.length} audio track(s), normalized mix` : "No music selected yet" },
+    { label: "B-roll / overlays", value: overlaySummary(project) },
+    { label: "Transitions", value: transitionTypes.join(", ") || "cut" },
+    { label: "Export settings", value: `${settings.width || "?"}x${settings.height || "?"} / ${settings.fps || "?"}fps / ${targetPlatform}` }
+  ];
+  const sceneDisplays = scenes.slice(0, 12).map((scene, index) => {
+    const layers = scene.layers || [];
+    const mediaLayer = layers.find((layer) => layer.type === "video" || layer.type === "image");
+    const animation = mediaLayer?.animation as Record<string, unknown> | undefined;
+    const caption = sceneCaptionText(scene as SceneData);
+    return {
+      id: scene.id || `scene_${index + 1}`,
+      name: scene.id || `Scene ${index + 1}`,
+      timeRange: `${formatTimestamp(Number(scene.start || 0))} - ${formatTimestamp(Number(scene.start || 0) + Number(scene.duration || 0))}`,
+      purpose: inferScenePurpose(scene as SceneData, index, scenes.length),
+      caption: caption || "No caption planned",
+      effect: String(animation?.in || scene.postProcessing ? describeSceneEffect(scene as SceneData) : "clean cut"),
+      transition: String(scene.transitionOut?.type || (index === scenes.length - 1 ? "fade out" : "cut")),
+      notes: describeSceneNotes(scene as SceneData)
+    };
+  });
+  const highlights = sceneDisplays.slice(0, 5).map((scene) => `${scene.name}: ${scene.purpose}`);
+  const cuts = sceneDisplays.map((scene) => `${scene.timeRange} - ${scene.name}`).slice(0, 6);
+  return {
+    explanation,
+    reasoning: plan.review.reasoning || "The AI organized the edit into a hook, supporting moments, and a payoff so you can review the story before applying it.",
+    summary,
+    highlights: highlights.length ? highlights : ["AI found the most useful moments from the imported media."],
+    cuts: cuts.length ? cuts : ["No timeline cuts have been applied yet."],
+    scenes: sceneDisplays
+  };
+}
+
+function simplePlanExplanation(plan: PendingAiPlan) {
+  const sceneCount = plan.review.scenes.length || parseProject(plan.text).data?.timeline?.length || 0;
+  const duration = plan.review.duration ? `${plan.review.duration.toFixed(1)} seconds` : "the requested length";
+  const hook = plan.review.hook ? ` It opens with: "${plan.review.hook}".` : "";
+  return `This plan creates a ${plan.preset} edit with ${sceneCount} scene(s), ${duration}, ${plan.review.style || "a polished style"}, readable captions, planned transitions, and export settings ready for review.${hook}`;
+}
+
+function inferCaptionStyle(project: ProjectData) {
+  const hasCaption = (project.timeline || []).some((scene) => (scene.layers || []).some((layer) => layer.type === "caption" || layer.type === "captions"));
+  if (hasCaption) return "Readable burned-in captions";
+  const hasText = (project.timeline || []).some((scene) => (scene.layers || []).some((layer) => layer.type === "text"));
+  return hasText ? "Title cards and text overlays" : "No captions planned";
+}
+
+function overlaySummary(project: ProjectData) {
+  let text = 0;
+  let image = 0;
+  for (const scene of project.timeline || []) {
+    for (const layer of scene.layers || []) {
+      if (layer.type === "text" || layer.type === "lower_third") text += 1;
+      if (layer.type === "image") image += 1;
+    }
+  }
+  const parts = [];
+  if (text) parts.push(`${text} text/title overlay(s)`);
+  if (image) parts.push(`${image} image/logo overlay(s)`);
+  return parts.join(", ") || "No extra overlays";
+}
+
+function inferScenePurpose(scene: SceneData, index: number, total: number) {
+  const caption = sceneCaptionText(scene).toLowerCase();
+  if (index === 0) return "Hook the viewer quickly";
+  if (index === total - 1) return "End with CTA or closing payoff";
+  if (/problem|issue|blocked|missing|error|before/.test(caption)) return "Show the problem";
+  if (/result|fixed|success|after|ready|done/.test(caption)) return "Show the result";
+  if (/scan|detect|feature|dashboard|step/.test(caption)) return "Highlight the feature";
+  return "Move the story forward";
+}
+
+function describeSceneEffect(scene: SceneData) {
+  const mediaLayer = (scene.layers || []).find((layer) => layer.type === "video" || layer.type === "image");
+  const animation = mediaLayer?.animation as Record<string, unknown> | undefined;
+  const effects = [];
+  if (animation?.in) effects.push(String(animation.in));
+  if (mediaLayer?.scale && Number(mediaLayer.scale) > 1) effects.push("zoom");
+  if (scene.postProcessing) effects.push("color grade");
+  return effects.join(", ") || "clean cut";
+}
+
+function describeSceneNotes(scene: SceneData) {
+  const layerTypes = new Set((scene.layers || []).map((layer) => layer.type));
+  const notes = [];
+  if (layerTypes.has("video")) notes.push("uses source footage");
+  if (layerTypes.has("image")) notes.push("uses visual overlay");
+  if (layerTypes.has("text")) notes.push("text is visible");
+  if (Number(scene.duration || 0) < 2) notes.push("fast pacing");
+  return notes.join(", ") || "simple scene";
 }
 
 function readGenerationReview(data: Record<string, unknown>, planPath: string | null): GenerationReviewState {

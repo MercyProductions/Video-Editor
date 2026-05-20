@@ -3046,6 +3046,122 @@ textarea {
   gap: 12px;
 }
 
+.ai-plan-review {
+  align-content: start;
+}
+
+.ai-plan-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  border-color: rgba(109, 181, 165, 0.42);
+  background:
+    linear-gradient(120deg, rgba(109, 181, 165, 0.12), transparent 46%),
+    #181713;
+}
+
+.ai-plan-hero h2 {
+  margin: 3px 0 6px;
+}
+
+.ai-plan-hero p {
+  margin: 0;
+  color: #c9c1b4;
+  line-height: 1.45;
+}
+
+.ai-plan-hero .review-actions {
+  max-width: 380px;
+  justify-content: flex-end;
+}
+
+.ai-plan-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ai-plan-summary-grid span,
+.scene-breakdown-grid span {
+  min-width: 0;
+  border: 1px solid #39352d;
+  border-radius: 6px;
+  background: #151410;
+  color: #9f9789;
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.ai-plan-summary-grid strong,
+.scene-breakdown-grid strong {
+  color: #f4f0e8;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ai-plan-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.ai-plan-columns > div {
+  border: 1px solid #39352d;
+  border-radius: 8px;
+  padding: 10px;
+  background: #151410;
+  display: grid;
+  gap: 7px;
+}
+
+.ai-plan-columns strong {
+  color: #f4f0e8;
+}
+
+.ai-plan-columns span {
+  color: #c7bfb1;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.scene-breakdown-list {
+  display: grid;
+  gap: 10px;
+}
+
+.scene-breakdown-list article {
+  border: 1px solid #39352d;
+  border-radius: 8px;
+  background: #151410;
+  padding: 10px;
+  display: grid;
+  gap: 9px;
+}
+
+.scene-breakdown-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.scene-breakdown-header strong {
+  color: #f4f0e8;
+}
+
+.scene-breakdown-header button {
+  min-height: 28px;
+}
+
+.scene-breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .caption-style-picker {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -3139,6 +3255,20 @@ textarea {
     grid-column: auto;
   }
 
+  .ai-plan-hero,
+  .ai-plan-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-plan-hero .review-actions {
+    justify-content: flex-start;
+  }
+
+  .ai-plan-summary-grid,
+  .scene-breakdown-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .mode-beginner .metric-grid,
   .mode-beginner .smart-defaults,
   .mode-beginner .adaptive-suggestions {
@@ -3151,7 +3281,9 @@ textarea {
   .mode-beginner .metric-grid,
   .mode-beginner .smart-defaults,
   .mode-beginner .adaptive-suggestions,
-  .mode-beginner .guidance-steps {
+  .mode-beginner .guidance-steps,
+  .ai-plan-summary-grid,
+  .scene-breakdown-grid {
     grid-template-columns: 1fr;
   }
 }
