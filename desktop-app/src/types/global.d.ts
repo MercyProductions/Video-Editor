@@ -32,6 +32,7 @@ declare global {
     analyzeAssets: (payload: { text: string; projectPath?: string | null }) => Promise<EngineJsonResult>;
     resolveBroll: (payload: { text: string; projectPath?: string | null }) => Promise<EngineTextResult>;
     listHistory: (payload: { projectPath?: string | null }) => Promise<HistoryVersion[]>;
+    recordHistory: (payload: { projectPath?: string | null; oldText: string; newText: string; summary: Record<string, unknown> }) => Promise<HistoryVersion | null>;
     rollbackHistory: (payload: { projectPath: string; versionId: string }) => Promise<ProjectFile>;
     exportPackage: (payload: { text: string; projectPath?: string | null }) => Promise<EngineJsonResult>;
     openPackage: () => Promise<ProjectFile | null>;

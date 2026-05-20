@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld("ave", {
   analyzeAssets: (payload: { text: string; projectPath?: string | null }) => ipcRenderer.invoke("engine:assetAnalyze", payload),
   resolveBroll: (payload: { text: string; projectPath?: string | null }) => ipcRenderer.invoke("engine:resolveBroll", payload),
   listHistory: (payload: { projectPath?: string | null }) => ipcRenderer.invoke("history:list", payload),
+  recordHistory: (payload: { projectPath?: string | null; oldText: string; newText: string; summary: Record<string, unknown> }) => ipcRenderer.invoke("history:record", payload),
   rollbackHistory: (payload: { projectPath: string; versionId: string }) => ipcRenderer.invoke("history:rollback", payload),
   exportPackage: (payload: { text: string; projectPath?: string | null }) => ipcRenderer.invoke("package:export", payload),
   openPackage: () => ipcRenderer.invoke("package:open"),

@@ -1231,13 +1231,30 @@ function App() {
     setGuidedStep(6);
   }
 
-  function applyPendingAiPlan() {
+  async function applyPendingAiPlan() {
     if (!pendingAiPlan) {
       setStatus("No AI plan is waiting for approval.");
       return;
     }
+    const targetPath = pendingAiPlan.path || projectPath;
+    const version = await window.ave.recordHistory({
+      projectPath: targetPath,
+      oldText: projectText,
+      newText: pendingAiPlan.text,
+      summary: {
+        summary: "AI plan applied",
+        source: pendingAiPlan.source,
+        prompt: pendingAiPlan.prompt,
+        style: pendingAiPlan.review.style,
+        duration: pendingAiPlan.review.duration,
+        sceneCount: parseProject(pendingAiPlan.text).data?.timeline?.length || pendingAiPlan.review.scenes.length,
+        reversible: true
+      }
+    });
+    await window.ave.autosaveProject({ text: projectText, projectPath: targetPath });
+    const appliedPath = targetPath || (typeof version?.projectPath === "string" ? version.projectPath : null);
     setProjectText(pendingAiPlan.text);
-    setProjectPath(pendingAiPlan.path);
+    setProjectPath(appliedPath);
     setPreset(pendingAiPlan.preset);
     setGenerationReview(pendingAiPlan.review);
     setGenerationPlanPath(pendingAiPlan.review.planPath);
@@ -1251,7 +1268,11 @@ function App() {
       setActiveTab("editor");
     }
     setAiNotes(simplePlanExplanation(pendingAiPlan));
-    setStatus("AI plan applied to timeline");
+    if (appliedPath) {
+      setHistory(await window.ave.listHistory({ projectPath: appliedPath }));
+      setRecoveryPoints(await window.ave.listRecovery({ projectPath: appliedPath }));
+    }
+    setStatus(version?.id ? `AI plan applied. Restore version saved: ${version.id}` : "AI plan applied. Restore point saved.");
     setPendingAiPlan(null);
     setAppModal(null);
   }

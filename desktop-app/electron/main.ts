@@ -593,6 +593,10 @@ function registerIpc() {
     return readHistory(payload.projectPath);
   });
 
+  ipcMain.handle("history:record", async (_event, payload: { projectPath?: string | null; oldText: string; newText: string; summary?: Record<string, unknown> }) => {
+    return recordHistorySnapshot(payload.projectPath || null, payload.oldText, payload.newText, payload.summary || {});
+  });
+
   ipcMain.handle("history:rollback", async (_event, payload: { projectPath: string; versionId: string }) => {
     const result = await runEngine(["history", "rollback", payload.projectPath, payload.versionId]);
     if (!result.ok) throw new Error(result.stderr || result.stdout || "Rollback failed");
@@ -2071,6 +2075,40 @@ async function readHistory(projectPath: string) {
     summaries.push(JSON.parse(await fs.readFile(summaryPath, "utf-8")));
   }
   return summaries.sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
+}
+
+async function recordHistorySnapshot(projectPath: string | null, oldText: string, newText: string, summary: Record<string, unknown>) {
+  if (!oldText.trim() || !newText.trim()) return null;
+  const targetPath = projectPath || path.join(generatedDir, `ai-applied-${Date.now()}`, "project.json");
+  await fs.mkdir(path.dirname(targetPath), { recursive: true });
+  if (!fsSync.existsSync(targetPath)) await fs.writeFile(targetPath, newText, "utf-8");
+  const historyDir = path.join(path.dirname(targetPath), ".ave_history");
+  const versionId = `${new Date().toISOString().replace(/[-:.]/g, "").replace("T", "T").slice(0, 15)}Z_${crypto.randomUUID().slice(0, 8)}`;
+  const versionDir = path.join(historyDir, versionId);
+  await fs.mkdir(versionDir, { recursive: true });
+  let oldProject: unknown;
+  let newProject: unknown;
+  try {
+    oldProject = JSON.parse(oldText);
+  } catch {
+    oldProject = { rawText: oldText };
+  }
+  try {
+    newProject = JSON.parse(newText);
+  } catch {
+    newProject = { rawText: newText };
+  }
+  await fs.writeFile(path.join(versionDir, "old_project.json"), JSON.stringify(oldProject, null, 2) + "\n", "utf-8");
+  await fs.writeFile(path.join(versionDir, "new_project.json"), JSON.stringify(newProject, null, 2) + "\n", "utf-8");
+  const changeSummary = {
+    id: versionId,
+    timestamp: new Date().toISOString(),
+    projectPath: path.resolve(targetPath),
+    summary: "AI plan applied",
+    ...summary
+  };
+  await fs.writeFile(path.join(versionDir, "change_summary.json"), JSON.stringify(changeSummary, null, 2) + "\n", "utf-8");
+  return changeSummary;
 }
 
 async function readPlugins() {
