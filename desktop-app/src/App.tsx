@@ -146,6 +146,7 @@ type QuickCreateState = {
   mediaFile: string | null;
   platform: string;
   style: string;
+  prompt: string;
 };
 type BeginnerSmartDefaults = {
   aspectRatio: string;
@@ -325,7 +326,8 @@ const defaultBeginnerForm: BeginnerFormState = {
 const defaultQuickCreate: QuickCreateState = {
   mediaFile: null,
   platform: "shorts",
-  style: "cinematic"
+  style: "cinematic",
+  prompt: "Make this into a YouTube Short."
 };
 
 function templateNameFromKey(templateKey: string) {
@@ -1171,7 +1173,18 @@ function App() {
   }
 
   async function generateQuickCreateEdit() {
-    const nextForm = beginnerFormFromQuickCreate(beginnerForm, quickCreate);
+    let request = quickCreate;
+    if (!request.mediaFile) {
+      const path = await window.ave.beginnerPickMedia();
+      if (!path) {
+        setStatus("Select a video first, then Quick Create can generate the edit.");
+        return;
+      }
+      request = { ...request, mediaFile: path };
+      setQuickCreate(request);
+      void recordAdaptiveEvent({ event: "media_imported", mediaPath: path, note: "quick_create_media" });
+    }
+    const nextForm = beginnerFormFromQuickCreate(beginnerForm, request);
     setBeginnerForm(nextForm);
     setUiMode("beginner");
     setActiveTab("beginner");
@@ -2670,24 +2683,35 @@ function ProjectHub({
       </section>
       <section className="creation-paths">
         <div className="creation-card quick-path">
-          <span className="eyebrow">Path 1</span>
-          <h2><Wand2 size={17} /> Quick Create</h2>
-          <p className="muted">Pick one video, choose platform and style, then generate an edit without touching JSON.</p>
-          <button className="large-action" onClick={onQuickPickMedia}><Video size={16} /> {quickCreate.mediaFile ? "Change video file" : "Select video file"}</button>
+          <span className="eyebrow">Recommended</span>
+          <h2><Wand2 size={17} /> Make A Short</h2>
+          <p className="muted">Upload a video, say what you want, and the app creates the hidden JSON, preview render, captions, timing, and export settings.</p>
+          <button className="large-action upload-action" onClick={onQuickPickMedia}><Video size={16} /> {quickCreate.mediaFile ? "Change uploaded video" : "Upload video"}</button>
           <small className="path-file" title={quickCreate.mediaFile || ""}>{quickCreate.mediaFile || "No video selected yet"}</small>
           <label>
-            Platform
-            <select value={quickCreate.platform} onChange={(event) => setQuickCreate((current) => ({ ...current, platform: event.target.value }))}>
-              {quickPlatforms.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
+            Tell AI what to make
+            <textarea
+              value={quickCreate.prompt}
+              onChange={(event) => setQuickCreate((current) => ({ ...current, prompt: event.target.value }))}
+              placeholder="Make this into a YouTube Short."
+            />
           </label>
-          <label>
-            Style
-            <select value={quickCreate.style} onChange={(event) => setQuickCreate((current) => ({ ...current, style: event.target.value }))}>
-              {quickStyles.map((style) => <option key={style} value={style}>{style.charAt(0).toUpperCase() + style.slice(1)}</option>)}
-            </select>
-          </label>
-          <button className="primary-create" onClick={onQuickGenerate}><Sparkles size={16} /> Generate Edit</button>
+          <details className="quick-options">
+            <summary>Optional details</summary>
+            <label>
+              Platform
+              <select value={quickCreate.platform} onChange={(event) => setQuickCreate((current) => ({ ...current, platform: event.target.value }))}>
+                {quickPlatforms.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+            <label>
+              Style
+              <select value={quickCreate.style} onChange={(event) => setQuickCreate((current) => ({ ...current, style: event.target.value }))}>
+                {quickStyles.map((style) => <option key={style} value={style}>{style.charAt(0).toUpperCase() + style.slice(1)}</option>)}
+              </select>
+            </label>
+          </details>
+          <button className="primary-create" onClick={onQuickGenerate}><Sparkles size={16} /> Generate YouTube Short</button>
         </div>
 
         <div className="creation-card guided-path">
@@ -6049,16 +6073,18 @@ function beginnerFormFromQuickCreate(current: BeginnerFormState, quickCreate: Qu
   const defaults = templateQuickDefaults(template, platform);
   const styleLabel = style.charAt(0).toUpperCase() + style.slice(1);
   const platformLabel = platform === "youtube" ? "Normal Video" : platform === "instagram_reels" ? "Reel" : platform === "tiktok" ? "TikTok" : "YouTube Short";
+  const prompt = quickCreate.prompt.trim() || `Make this into a ${platformLabel}.`;
   return {
     ...current,
     mediaFile: quickCreate.mediaFile || current.mediaFile,
+    productName: "Uploaded Video",
+    goal: prompt,
+    keyFeatures: "",
     template,
     targetPlatform: platform,
     vibe: `${style} ${defaults.vibe}`.trim(),
-    duration: current.duration || defaults.duration,
-    quickPrompt: current.quickPrompt.trim()
-      ? current.quickPrompt
-      : `Create a ${platformLabel} in a ${styleLabel} style. Use the selected footage, add readable captions, clean cuts, title cards, and a polished ending.`
+    duration: parseDurationFromPrompt(prompt) || defaults.duration,
+    quickPrompt: `${prompt} Use a ${styleLabel} style, readable captions, clean cuts, title cards, and a polished ending.`
   };
 }
 
