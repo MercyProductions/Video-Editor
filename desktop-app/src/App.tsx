@@ -366,8 +366,8 @@ function App() {
   const [assistantDraft, setAssistantDraft] = useState("");
   const [assistantMessages, setAssistantMessages] = useState<CollaborationMessage[]>([]);
   const [proactiveMuted, setProactiveMuted] = useState(false);
-  const [leftRailOpen, setLeftRailOpen] = useState(true);
-  const [rightRailOpen, setRightRailOpen] = useState(true);
+  const [leftRailOpen, setLeftRailOpen] = useState(false);
+  const [rightRailOpen, setRightRailOpen] = useState(false);
   const [backgroundImprovements, setBackgroundImprovements] = useState<BackgroundImprovement[]>([]);
 
   const parsed = useMemo(() => parseProject(projectText), [projectText]);
@@ -479,7 +479,7 @@ function App() {
   }, [projectPath]);
 
   useEffect(() => {
-    if (uiMode === "beginner") setProcessingCollapsed(true);
+    setProcessingCollapsed(true);
   }, [uiMode]);
 
   useEffect(() => {
@@ -582,7 +582,7 @@ function App() {
       etaSeconds: kind === "success" ? 0 : current.etaSeconds,
       workers: current.workers.map((worker) => ({ ...worker, status: kind === "success" ? "complete" : worker.status }))
     }));
-    if (kind === "success") setProcessingCollapsed(true);
+    if (kind !== "info") setProcessingCollapsed(true);
     pushActivity(label, kind);
   }
 
@@ -1117,7 +1117,10 @@ function App() {
       }
       const preflight = await runFinalPreflight(false);
       if (preflight && !preflight.ready) {
-        setStatus(`Final export blocked by preflight: ${preflight.blockingCount || preflight.warningsRemaining || 0} issue(s) need review`);
+        const blockingIssue = (preflight.issues || []).find((issue) => issue.blocking);
+        const issueDetail = blockingIssue ? ` - ${blockingIssue.message}` : "";
+        setStatus(`Final export blocked by preflight: ${preflight.blockingCount || 0} blocking issue(s)${issueDetail}`);
+        setRightRailOpen(true);
         setActiveTab("preview");
         finishProcessing("Final render blocked by preflight", "warning");
         return;
@@ -1569,6 +1572,9 @@ function App() {
     setStatus("Local friction report refreshed");
   }
 
+  const preflightBlockingIssues = (finalPreflightReport?.issues || []).filter((issue) => issue.blocking);
+  const preflightWarningCount = (finalPreflightReport?.issues || []).filter((issue) => !issue.accepted && issue.severity === "warning").length;
+
   return (
     <div className={`app-shell theme-${settings.theme} mode-${uiMode} ${leftRailOpen ? "" : "left-rail-collapsed"} ${rightRailOpen ? "" : "right-rail-collapsed"}`}>
       <header className="topbar">
@@ -1678,6 +1684,16 @@ function App() {
                 <button className={activeTab === "storyboard" ? "active" : ""} onClick={() => setActiveTab("storyboard")}><LayoutTemplate size={15} /> Storyboard</button>
                 <button className={activeTab === "workflow" ? "active" : ""} onClick={() => setActiveTab("workflow")}><Scissors size={15} /> Workflow</button>
                 <button className={activeTab === "product" ? "active" : ""} onClick={() => setActiveTab("product")}><CheckCircle2 size={15} /> Product</button>
+                {finalPreflightReport && (
+                  <button
+                    className={preflightBlockingIssues.length ? "preflight-tab warning" : "preflight-tab"}
+                    title={preflightBlockingIssues[0]?.message || "Open render controls for the latest preflight report"}
+                    onClick={() => setRightRailOpen(true)}
+                  >
+                    <CheckCircle2 size={15} />
+                    {preflightBlockingIssues.length ? `Preflight: ${preflightBlockingIssues.length} block` : `Preflight: ${preflightWarningCount} warn`}
+                  </button>
+                )}
               </>
             )}
           </nav>

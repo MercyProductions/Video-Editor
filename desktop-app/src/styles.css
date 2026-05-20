@@ -894,6 +894,19 @@ textarea {
   background: #25332f;
 }
 
+.tabs .preflight-tab {
+  margin-left: auto;
+  border-color: #41564f;
+  color: #bfeee3;
+  background: #17241f;
+}
+
+.tabs .preflight-tab.warning {
+  border-color: #7a6335;
+  color: #ffe3a3;
+  background: #2a2418;
+}
+
 .editor-pane {
   min-height: 0;
   display: grid;
@@ -2435,6 +2448,37 @@ textarea {
 
 .mode-beginner .beginner-pane {
   overflow-x: hidden;
+}
+
+/* Advanced mode should keep the actual editor visible even when background AI/render
+   activity is expanded. Detailed activity remains scrollable instead of pushing tabs
+   and preview controls below the fold. */
+.mode-advanced .processing-slot {
+  max-height: min(28vh, 280px);
+  overflow: auto;
+  border-bottom: 1px solid #25221d;
+}
+
+.mode-advanced .processing-dock {
+  max-height: min(28vh, 280px);
+  overflow: auto;
+}
+
+.mode-advanced .processing-dock.collapsed {
+  max-height: 46px;
+  overflow: hidden;
+}
+
+.mode-advanced .collaboration-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.7fr);
+}
+
+.mode-advanced .live-scenes,
+.mode-advanced .collab-sidebar,
+.mode-advanced .activity-feed,
+.mode-advanced .reasoning-panel {
+  max-height: 220px;
+  overflow: auto;
 }
 
 @media (max-width: 1320px) {

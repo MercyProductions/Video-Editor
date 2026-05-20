@@ -157,6 +157,7 @@ def _check_assets(data: dict[str, Any], asset_report: dict[str, Any], issues: li
 
 def _check_review_state(data: dict[str, Any], issues: list[dict[str, Any]]) -> None:
     review = data.get("metadata", {}).get("previewReview", {})
+    review_gate_active = bool(review.get("enforceExportGate")) if isinstance(review, dict) else False
     markers = review.get("markers", []) if isinstance(review, dict) else []
     for marker in markers:
         if marker.get("resolved") or marker.get("type") == "keep":
@@ -172,19 +173,24 @@ def _check_review_state(data: dict[str, Any], issues: list[dict[str, Any]]) -> N
                 suggestion="Review the marker, repair the scene, or lock it as accepted.",
             )
         )
+    scenes = data.get("timeline", [])
+    explicit_scene_review = any(isinstance(scene, dict) and "reviewStatus" in scene for scene in scenes)
+    if not review_gate_active and not explicit_scene_review:
+        return
     for scene in data.get("timeline", []):
         if scene.get("excludeFromFinal"):
             continue
         status = scene.get("reviewStatus")
         if status not in {"approved", "locked"}:
+            severity = "error" if review_gate_active else "warning"
             issues.append(
                 _issue(
                     "unapproved_scenes",
-                    "error",
-                    f"Scene is not approved for final export: {scene.get('id')}",
+                    severity,
+                    f"Scene has not been explicitly approved: {scene.get('id')}",
                     scene=scene.get("id"),
                     auto_fix=None,
-                    suggestion="Approve, lock, regenerate, or exclude this scene.",
+                    suggestion="Approve or lock the scene if you are using the review workflow.",
                 )
             )
 
