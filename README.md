@@ -25,6 +25,35 @@ python render.py examples/project.json
 
 Rendered videos go to `output/final_video.mp4` unless `-o` is provided.
 
+## Current Reliable Workflow
+
+The currently verified path is the local MVP loop: create or open JSON, validate it, run quality checks, render a preview MP4, and use the desktop app as a UI over that same JSON source of truth.
+
+```powershell
+python render.py validate examples/project.json
+python render.py quality-check examples/project.json -o output/quality_report.json
+python render.py render examples/project.json -o output/smoke_preview.mp4 --quality preview --cache
+```
+
+For a generated starter project:
+
+```powershell
+python render.py quick-create examples/assets/gameplay.mp4 --music examples/assets/song.wav --logo examples/assets/logo.png --title "Automatic Edit" --caption "JSON to FFmpeg to MP4." --duration 4 -o examples/generated/quick_create.json --render --render-output output/quick_create_preview.mp4 --quality preview --cache
+```
+
+Current feature status:
+
+- Stable: JSON validation, asset resolution, clear missing-asset errors, sample preview render, quick-create JSON generation/render, render reports, quality checks, desktop typecheck/build.
+- Smoke-tested: demo JSON validation, Electron production build, preview render caching, beginner quick-create backend path.
+- Experimental: broad local AI/content workflows, advanced cinematic systems, adaptive memory, proactive suggestions, plugin expansion, packaged installer flow.
+- Planned hardening: desktop unit tests, isolated packaging tests, larger render matrix, duration assertions, file/module split of the large UI and CLI entry points.
+
+Run the local gate before trusting a handoff build:
+
+```powershell
+python scripts/verify_local.py
+```
+
 ## Desktop App
 
 Phase 4 adds an Electron, React, and TypeScript desktop shell in `desktop-app/`. It uses the existing Python renderer through IPC, so every UI action still reads or writes the same `project.json` format used by the CLI.

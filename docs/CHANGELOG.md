@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0 Internal Verification Checkpoint
+
+- Verified the current local-first baseline with `python scripts\verify_local.py`.
+- Current release gate reports `ready=true`, 24 checks, 0 failed.
+- Release report path: `output\local_verify_release_check.json`.
+- Added backend smoke tests, desktop helper tests, and a top-level local verification script.
+- Added desktop `npm run verify` for typecheck, unit tests, and production build.
+- Split large desktop surfaces into focused components and extracted Electron media/history helpers.
+- This checkpoint is an internal engineering baseline; packaged installer/ZIP verification remains a later release gate.
+
 ## 0.9.0 Release Candidate
 
 - Added finalization audit, profiling, and release-candidate checks.

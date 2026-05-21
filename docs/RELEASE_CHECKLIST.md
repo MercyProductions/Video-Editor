@@ -6,14 +6,22 @@ Required checks:
 
 ```powershell
 python -m compileall src
+python -m unittest discover -s tests
 cd desktop-app
 npm run typecheck
+npm run test:unit
 npm run build
 cd ..
 python render.py release-check -o output/release_candidate_check.json
 python render.py installer portable -o output/automatic-video-editor-portable.zip
 cd desktop-app
 npm run build:installer
+```
+
+Shortcut for the main local gate:
+
+```powershell
+python scripts/verify_local.py
 ```
 
 Manual checks:

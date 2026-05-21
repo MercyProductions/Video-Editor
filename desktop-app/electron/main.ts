@@ -4,6 +4,22 @@ import fsSync from "node:fs";
 import path from "node:path";
 import { ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import crypto from "node:crypto";
+import {
+  allMediaImportExtensions,
+  audioImportExtensions,
+  checkAssets,
+  imageImportExtensions,
+  mediaType,
+  safeAssetKey,
+  videoImportExtensions
+} from "./media";
+import {
+  compareHistoryVersion,
+  duplicateHistoryVersion,
+  projectDurationSeconds,
+  readHistory,
+  recordHistorySnapshot
+} from "./history";
 
 type RecentProject = {
   path: string;
@@ -228,11 +244,6 @@ const legacyOutputRoots = [
   path.join(engineRoot, "exports")
 ];
 const tempDir = path.join(app.getPath("temp"), "automatic-video-editor-desktop");
-const videoImportExtensions = ["mp4", "mov", "mkv", "avi", "webm", "flv", "wmv", "mpeg", "mpg", "m4v", "ts", "mts", "m2ts"];
-const imageImportExtensions = ["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff", "tif", "svg"];
-const audioImportExtensions = ["mp3", "wav", "flac", "ogg", "aac", "m4a"];
-const allMediaImportExtensions = [...videoImportExtensions, ...imageImportExtensions, ...audioImportExtensions];
-
 let mainWindow: BrowserWindow | null = null;
 let splashWindow: BrowserWindow | null = null;
 let renderQueue: QueuedRenderJob[] = [];
@@ -629,7 +640,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("assets:check", async (_event, payload: { text: string; projectPath?: string | null }) => {
-    return checkAssets(payload.text, payload.projectPath || null);
+    return checkAssets(payload.text, payload.projectPath || null, engineRoot);
   });
 
   ipcMain.handle("history:list", async (_event, payload: { projectPath?: string | null }) => {
@@ -638,7 +649,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("history:record", async (_event, payload: { projectPath?: string | null; oldText: string; newText: string; summary?: Record<string, unknown> }) => {
-    return recordHistorySnapshot(payload.projectPath || null, payload.oldText, payload.newText, payload.summary || {});
+    return recordHistorySnapshot(payload.projectPath || null, payload.oldText, payload.newText, payload.summary || {}, generatedDir);
   });
 
   ipcMain.handle("history:rollback", async (_event, payload: { projectPath: string; versionId: string }) => {
@@ -648,7 +659,9 @@ function registerIpc() {
   });
 
   ipcMain.handle("history:duplicate", async (_event, payload: { projectPath: string; versionId: string }) => {
-    return duplicateHistoryVersion(payload.projectPath, payload.versionId);
+    const targetPath = await duplicateHistoryVersion(payload.projectPath, payload.versionId, generatedDir);
+    await addRecent(targetPath);
+    return readProjectFile(targetPath);
   });
 
   ipcMain.handle("history:compare", async (_event, payload: { projectPath: string; versionId: string }) => {
@@ -2377,138 +2390,6 @@ function sendLog(webContents: Electron.WebContents, runId: string, text: string,
   }
 }
 
-function safeAssetKey(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "asset";
-}
-
-function mediaType(filePath: string): "image" | "video" | "audio" | "unknown" {
-  const ext = path.extname(filePath).toLowerCase();
-  if (imageImportExtensions.map((value) => `.${value}`).includes(ext)) return "image";
-  if (videoImportExtensions.map((value) => `.${value}`).includes(ext)) return "video";
-  if (audioImportExtensions.map((value) => `.${value}`).includes(ext)) return "audio";
-  return "unknown";
-}
-
-function checkAssets(text: string, projectPath: string | null) {
-  const data = JSON.parse(text);
-  const projectDir = projectPath ? path.dirname(projectPath) : engineRoot;
-  const assets = data.assets && typeof data.assets === "object" ? data.assets : {};
-  return Object.entries(assets).map(([key, rawValue]) => {
-    const value = String(rawValue);
-    const resolved = path.isAbsolute(value) ? value : path.resolve(projectDir, value);
-    const exists = fsSync.existsSync(resolved);
-    const stat = exists ? fsSync.statSync(resolved) : null;
-    return {
-      key,
-      path: resolved,
-      exists,
-      type: mediaType(resolved),
-      modifiedMs: stat?.mtimeMs || 0,
-      fileSize: stat?.size || 0
-    };
-  });
-}
-
-async function readHistory(projectPath: string) {
-  const historyDir = path.join(path.dirname(projectPath), ".ave_history");
-  if (!fsSync.existsSync(historyDir)) return [];
-  const summaries = [];
-  for (const entry of await fs.readdir(historyDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const summaryPath = path.join(historyDir, entry.name, "change_summary.json");
-    if (!fsSync.existsSync(summaryPath)) continue;
-    summaries.push(JSON.parse(await fs.readFile(summaryPath, "utf-8")));
-  }
-  return summaries.sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
-}
-
-async function recordHistorySnapshot(projectPath: string | null, oldText: string, newText: string, summary: Record<string, unknown>) {
-  if (!oldText.trim() || !newText.trim()) return null;
-  const targetPath = projectPath || path.join(generatedDir, `ai-applied-${Date.now()}`, "project.json");
-  await fs.mkdir(path.dirname(targetPath), { recursive: true });
-  if (!fsSync.existsSync(targetPath)) await fs.writeFile(targetPath, newText, "utf-8");
-  const historyDir = path.join(path.dirname(targetPath), ".ave_history");
-  const versionId = `${new Date().toISOString().replace(/[-:.]/g, "").replace("T", "T").slice(0, 15)}Z_${crypto.randomUUID().slice(0, 8)}`;
-  const versionDir = path.join(historyDir, versionId);
-  await fs.mkdir(versionDir, { recursive: true });
-  let oldProject: unknown;
-  let newProject: unknown;
-  try {
-    oldProject = JSON.parse(oldText);
-  } catch {
-    oldProject = { rawText: oldText };
-  }
-  try {
-    newProject = JSON.parse(newText);
-  } catch {
-    newProject = { rawText: newText };
-  }
-  await fs.writeFile(path.join(versionDir, "old_project.json"), JSON.stringify(oldProject, null, 2) + "\n", "utf-8");
-  await fs.writeFile(path.join(versionDir, "new_project.json"), JSON.stringify(newProject, null, 2) + "\n", "utf-8");
-  const changeSummary = {
-    id: versionId,
-    timestamp: new Date().toISOString(),
-    projectPath: path.resolve(targetPath),
-    name: String(summary.name || summary.summary || "Restore point"),
-    summary: "AI plan applied",
-    ...summary
-  };
-  await fs.writeFile(path.join(versionDir, "change_summary.json"), JSON.stringify(changeSummary, null, 2) + "\n", "utf-8");
-  return changeSummary;
-}
-
-function historyVersionDir(projectPath: string, versionId: string) {
-  return path.join(path.dirname(projectPath), ".ave_history", versionId);
-}
-
-async function duplicateHistoryVersion(projectPath: string, versionId: string) {
-  const versionDir = historyVersionDir(projectPath, versionId);
-  const sourcePath = path.join(versionDir, "new_project.json");
-  if (!fsSync.existsSync(sourcePath)) throw new Error(`Version ${versionId} is missing its project snapshot.`);
-  const text = await fs.readFile(sourcePath, "utf-8");
-  const targetDir = path.join(generatedDir, `version-${safeAssetKey(versionId)}-${Date.now()}`);
-  const targetPath = path.join(targetDir, "project.json");
-  await fs.mkdir(targetDir, { recursive: true });
-  await fs.writeFile(targetPath, text, "utf-8");
-  await addRecent(targetPath);
-  return readProjectFile(targetPath);
-}
-
-async function compareHistoryVersion(projectPath: string, versionId: string) {
-  const versionDir = historyVersionDir(projectPath, versionId);
-  const oldPath = path.join(versionDir, "old_project.json");
-  const newPath = path.join(versionDir, "new_project.json");
-  if (!fsSync.existsSync(oldPath) || !fsSync.existsSync(newPath)) throw new Error(`Version ${versionId} cannot be compared.`);
-  const oldText = await fs.readFile(oldPath, "utf-8");
-  const newText = await fs.readFile(newPath, "utf-8");
-  const oldProject = JSON.parse(oldText);
-  const newProject = JSON.parse(newText);
-  const oldTimeline = Array.isArray(oldProject.timeline) ? oldProject.timeline : [];
-  const newTimeline = Array.isArray(newProject.timeline) ? newProject.timeline : [];
-  const oldAssets = oldProject.assets && typeof oldProject.assets === "object" ? Object.keys(oldProject.assets).length : 0;
-  const newAssets = newProject.assets && typeof newProject.assets === "object" ? Object.keys(newProject.assets).length : 0;
-  const oldDuration = projectDurationSeconds(oldProject);
-  const newDuration = projectDurationSeconds(newProject);
-  return {
-    versionId,
-    old: { scenes: oldTimeline.length, assets: oldAssets, duration: oldDuration },
-    new: { scenes: newTimeline.length, assets: newAssets, duration: newDuration },
-    changes: [
-      `Scenes: ${oldTimeline.length} -> ${newTimeline.length}`,
-      `Assets: ${oldAssets} -> ${newAssets}`,
-      `Duration: ${oldDuration.toFixed(1)}s -> ${newDuration.toFixed(1)}s`
-    ],
-    oldText,
-    newText
-  };
-}
-
-function projectDurationSeconds(project: { project?: Record<string, unknown>; timeline?: Array<Record<string, unknown>> }) {
-  const explicit = Number(project.project?.duration || 0);
-  if (Number.isFinite(explicit) && explicit > 0) return explicit;
-  return Math.max(0, ...(project.timeline || []).map((scene) => Number(scene.start || 0) + Number(scene.duration || 0)));
-}
-
 function projectHealthCheck(text: string, projectPath: string | null) {
   const issues: Array<{ id: string; severity: "error" | "warning" | "info"; message: string; suggestion: string }> = [];
   let data: any = null;
@@ -2527,7 +2408,7 @@ function projectHealthCheck(text: string, projectPath: string | null) {
   }
   let assets: ReturnType<typeof checkAssets> = [];
   try {
-    assets = checkAssets(text, projectPath);
+    assets = checkAssets(text, projectPath, engineRoot);
   } catch {
     assets = [];
   }

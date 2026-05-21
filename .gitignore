@@ -9,6 +9,7 @@ venv/
 desktop-app/node_modules/
 desktop-app/dist/
 desktop-app/dist-electron/
+desktop-app/.test-dist/
 desktop-app/release/
 desktop-app/.vite/
 

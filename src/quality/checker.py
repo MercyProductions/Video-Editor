@@ -15,7 +15,7 @@ def run_quality_check(project_path: Path, *, output_path: Path | None = None) ->
     settings = data.get("project", {})
     width = int(settings.get("width", 1920))
     height = int(settings.get("height", 1080))
-    _check_assets(issues, assets, width, height)
+    _check_assets(issues, assets, data, width, height)
     _check_audio(issues, data, assets)
     _check_text_and_captions(issues, data, width, height)
     _check_export_settings(issues, data)
@@ -31,17 +31,89 @@ def run_quality_check(project_path: Path, *, output_path: Path | None = None) ->
     return result
 
 
-def _check_assets(issues: list[dict[str, Any]], report: dict[str, Any], width: int, height: int) -> None:
+def _check_assets(issues: list[dict[str, Any]], report: dict[str, Any], project: dict[str, Any], width: int, height: int) -> None:
     for asset in report.get("assets", []):
         if not asset.get("exists"):
             issues.append({"severity": "error", "asset": asset["key"], "message": "Missing asset."})
             continue
         resolution = asset.get("resolution") or {}
         if asset.get("type") in {"video", "image"} and resolution:
-            if int(resolution.get("width", 0)) < width * 0.55 or int(resolution.get("height", 0)) < height * 0.55:
-                issues.append({"severity": "warning", "asset": asset["key"], "message": "Asset resolution is low for the export size."})
+            required_size = _visual_target_size(project, str(asset.get("key", "")), str(asset.get("type", "")), resolution, width, height)
+            if required_size and _below_target_resolution(resolution, required_size):
+                issues.append({"severity": "warning", "asset": asset["key"], "message": "Asset resolution is low for its timeline usage."})
         if asset.get("type") == "audio" and (asset.get("loudness") or {}).get("peak", 0) > 0.9:
             issues.append({"severity": "warning", "asset": asset["key"], "message": "Possible audio clipping detected."})
+
+
+def _visual_target_size(
+    project: dict[str, Any],
+    asset_key: str,
+    asset_type: str,
+    resolution: dict[str, Any],
+    width: int,
+    height: int,
+) -> tuple[float, float] | None:
+    source_width = float(resolution.get("width", 0) or 0)
+    source_height = float(resolution.get("height", 0) or 0)
+    if source_width <= 0 or source_height <= 0:
+        return None
+
+    targets: list[tuple[float, float]] = []
+    for scene in project.get("timeline", []):
+        for layer in scene.get("layers", []):
+            if not isinstance(layer, dict) or layer.get("asset") != asset_key or layer.get("type") not in {"video", "image"}:
+                continue
+            target = _layer_target_size(layer, asset_type, source_width, source_height, width, height)
+            if target:
+                targets.append(target)
+
+    if not targets:
+        return (width * 0.55, height * 0.55) if asset_type == "video" else None
+    return max(targets, key=lambda size: size[0] * size[1])
+
+
+def _layer_target_size(
+    layer: dict[str, Any],
+    asset_type: str,
+    source_width: float,
+    source_height: float,
+    project_width: int,
+    project_height: int,
+) -> tuple[float, float] | None:
+    layer_width = _positive_number(layer.get("width"))
+    layer_height = _positive_number(layer.get("height"))
+    if layer_width and layer_height:
+        return layer_width, layer_height
+    if layer_width:
+        return layer_width, layer_width * (source_height / source_width)
+    if layer_height:
+        return layer_height * (source_width / source_height), layer_height
+
+    scale = _positive_number(layer.get("scale"))
+    if scale:
+        return source_width * scale, source_height * scale
+
+    fit = str(layer.get("autoFit") or layer.get("fit") or layer.get("objectFit") or "").lower()
+    if fit in {"cover", "contain", "stretch"}:
+        return float(project_width), float(project_height)
+    if asset_type == "video":
+        return float(project_width), float(project_height)
+    return None
+
+
+def _below_target_resolution(resolution: dict[str, Any], target: tuple[float, float]) -> bool:
+    source_width = float(resolution.get("width", 0) or 0)
+    source_height = float(resolution.get("height", 0) or 0)
+    target_width, target_height = target
+    return source_width < target_width * 0.95 or source_height < target_height * 0.95
+
+
+def _positive_number(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
 
 
 def _check_audio(issues: list[dict[str, Any]], project: dict[str, Any], assets: dict[str, Any]) -> None:

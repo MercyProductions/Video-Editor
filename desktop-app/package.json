@@ -9,6 +9,8 @@
     "dev": "npm run build:electron && concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && cross-env ELECTRON_START_URL=http://127.0.0.1:5173 electron .\"",
     "build:electron": "tsc -p tsconfig.electron.json",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "test:unit": "node scripts/run-unit-tests.cjs",
+    "verify": "npm run typecheck && npm run test:unit && npm run build",
     "build": "npm run build:electron && vite build",
     "dist": "npm run build && electron-builder --dir",
     "build:installer": "npm run build && electron-builder",

@@ -16,8 +16,10 @@ Before release work:
 
 ```powershell
 python -m compileall src
+python -m unittest discover -s tests
 cd desktop-app
 npm run typecheck
+npm run test:unit
 npm run build
 ```
 
@@ -28,6 +30,14 @@ python render.py architecture-audit -o output/architecture_audit.json
 python render.py profile-run examples/project.json -o output/performance_profile.json
 python render.py release-check -o output/release_candidate_check.json
 ```
+
+One-command local verification:
+
+```powershell
+python scripts/verify_local.py
+```
+
+See [TESTING.md](TESTING.md) for the current smoke test and release gate commands.
 
 Development rules:
 

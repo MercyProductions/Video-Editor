@@ -1,4 +1,4 @@
-import Editor, { OnMount } from "@monaco-editor/react";
+import type { OnMount } from "@monaco-editor/react";
 import {
   Bell,
   Bot,
@@ -10,7 +10,6 @@ import {
   Download,
   Eye,
   FileJson,
-  FileText,
   FolderOpen,
   Image,
   Import,
@@ -18,16 +17,12 @@ import {
   LayoutTemplate,
   ListVideo,
   Maximize2,
-  Mic,
   MonitorPlay,
-  MoreVertical,
-  Music,
   Pause,
   Pencil,
   Play,
   Plus,
   RefreshCw,
-  RefreshCcw,
   Redo2,
   Save,
   Scissors,
@@ -42,9 +37,8 @@ import {
   ZoomIn,
   ZoomOut
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
-  addAssetLayerToScene,
   addAssetToFirstScene,
   addImportedAssets,
   addPreviewReviewMarker,
@@ -52,21 +46,14 @@ import {
   addScene,
   applyPreviewPauseEdit,
   blankProject,
-  collectLayerTypes,
-  comparePreviewVersions,
   explainProject,
   formatProject,
   parseProject,
-  PauseEditPatch,
   PreviewMarkerType,
-  PreviewRegenerateAction,
-  PreviewReviewMarker,
   previewExportReadiness,
   LayerData,
   ProjectData,
   regeneratePreviewSection,
-  restorePreviewVersion,
-  savePreviewVersion,
   SceneData,
   sceneAtTime,
   setSceneReviewStatus,
@@ -74,6 +61,13 @@ import {
   totalTimelineDuration,
   updateSceneTimingAdvanced
 } from "./lib/project";
+
+const VisualTimeline = lazy(() => import("./components/VisualTimeline").then((module) => ({ default: module.VisualTimeline })));
+const PreviewWindow = lazy(() => import("./components/PreviewWindow").then((module) => ({ default: module.PreviewWindow })));
+const AssetLibrary = lazy(() => import("./components/AssetLibrary").then((module) => ({ default: module.AssetLibrary })));
+const JsonEditor = lazy(() => import("./components/JsonEditor").then((module) => ({ default: module.JsonEditor })));
+const KeyboardShortcutsPanel = lazy(() => import("./components/HelpPanels").then((module) => ({ default: module.KeyboardShortcutsPanel })));
+const HelpCenter = lazy(() => import("./components/HelpPanels").then((module) => ({ default: module.HelpCenter })));
 
 type Tab =
   | "home"
@@ -94,14 +88,6 @@ type Tab =
   | "workflow"
   | "product";
 
-type TimelineTrackId = "main" | "audio" | "captions" | "broll" | "graphics" | "effects" | "ai";
-
-type TimelineTrackState = Record<TimelineTrackId, {
-  locked: boolean;
-  hidden: boolean;
-  muted?: boolean;
-  solo?: boolean;
-}>;
 type AppModal =
   | "import"
   | "ai"
@@ -913,6 +899,14 @@ const emptyProactiveAnalysis: ProactiveAnalysis = {
     warningCount: 0
   }
 };
+
+function PanelFallback({ label, className = "panel panel-loading" }: { label: string; className?: string }) {
+  return (
+    <div className={className}>
+      <span className="muted">{label}</span>
+    </div>
+  );
+}
 
 function App() {
   const [engine, setEngine] = useState<EngineInfo | null>(null);
@@ -3790,68 +3784,78 @@ function App() {
             />
           )}
           {activeTab === "json" && (
-            <JsonEditor text={projectText} schemaReady={Boolean(engine)} onChange={setProjectText} onMount={onEditorMount} validation={validation} />
+            <Suspense fallback={<PanelFallback label="Loading JSON editor..." className="editor-pane panel-loading" />}>
+              <JsonEditor text={projectText} schemaReady={Boolean(engine)} onChange={setProjectText} onMount={onEditorMount} validation={validation} />
+            </Suspense>
           )}
           {activeTab === "timeline" && project && (
-            <VisualTimeline
-              project={project}
-              onProjectChange={updateProject}
-              interactivePreview={interactivePreview}
-              onAutosaveNow={() => { void autosaveNow(); }}
-              onDuplicateProject={() => { void duplicateProjectForIteration(); }}
-              versionCount={history.length}
-              recoveryCount={recoveryPoints.length}
-            />
+            <Suspense fallback={<PanelFallback label="Loading timeline..." className="timeline-pane panel" />}>
+              <VisualTimeline
+                project={project}
+                onProjectChange={updateProject}
+                interactivePreview={interactivePreview}
+                onAutosaveNow={() => { void autosaveNow(); }}
+                onDuplicateProject={() => { void duplicateProjectForIteration(); }}
+                versionCount={history.length}
+                recoveryCount={recoveryPoints.length}
+              />
+            </Suspense>
           )}
           {activeTab === "preview" && (
             <div className="editor-workspace">
-              <PreviewWindow
-                project={project || null}
-                previewPath={previewPath}
-                realtimePreview={realtimePreview}
-                interactivePreview={interactivePreview}
-                previewTimeSeconds={previewTimeSeconds}
-                setPreviewTimeSeconds={setPreviewTimeSeconds}
-                previewQualityMode={previewQualityMode}
-                setPreviewQualityMode={setPreviewQualityMode}
-                previewScope={previewScope}
-                setPreviewScope={setPreviewScope}
-                previewSceneId={previewSceneId}
-                setPreviewSceneId={setPreviewSceneId}
-                preset={preset}
-                exportFormat={exportFormat}
-                qualityReport={qualityReport}
-                duration={project ? totalTimelineDuration(project) : 0}
-                onRealtimePreview={generateRealtimePreview}
-                onInteractivePreview={generateInteractivePreview}
-                onProjectChange={updateProject}
-                onProjectPreviewChange={updateProjectAndRefreshPreview}
-              />
-              {project ? (
-                <VisualTimeline
-                  project={project}
-                  onProjectChange={updateProject}
+              <Suspense fallback={<PanelFallback label="Loading preview..." className="preview-pane panel-loading" />}>
+                <PreviewWindow
+                  project={project || null}
+                  previewPath={previewPath}
+                  realtimePreview={realtimePreview}
                   interactivePreview={interactivePreview}
-                  onAutosaveNow={() => { void autosaveNow(); }}
-                  onDuplicateProject={() => { void duplicateProjectForIteration(); }}
-                  versionCount={history.length}
-                  recoveryCount={recoveryPoints.length}
+                  previewTimeSeconds={previewTimeSeconds}
+                  setPreviewTimeSeconds={setPreviewTimeSeconds}
+                  previewQualityMode={previewQualityMode}
+                  setPreviewQualityMode={setPreviewQualityMode}
+                  previewScope={previewScope}
+                  setPreviewScope={setPreviewScope}
+                  previewSceneId={previewSceneId}
+                  setPreviewSceneId={setPreviewSceneId}
+                  preset={preset}
+                  exportFormat={exportFormat}
+                  qualityReport={qualityReport}
+                  duration={project ? totalTimelineDuration(project) : 0}
+                  onRealtimePreview={generateRealtimePreview}
+                  onInteractivePreview={generateInteractivePreview}
+                  onProjectChange={updateProject}
+                  onProjectPreviewChange={updateProjectAndRefreshPreview}
                 />
+              </Suspense>
+              {project ? (
+                <Suspense fallback={<PanelFallback label="Loading timeline..." className="timeline-pane panel" />}>
+                  <VisualTimeline
+                    project={project}
+                    onProjectChange={updateProject}
+                    interactivePreview={interactivePreview}
+                    onAutosaveNow={() => { void autosaveNow(); }}
+                    onDuplicateProject={() => { void duplicateProjectForIteration(); }}
+                    versionCount={history.length}
+                    recoveryCount={recoveryPoints.length}
+                  />
+                </Suspense>
               ) : <div className="timeline-pane panel"><span className="muted">Import media or open a project to show the timeline.</span></div>}
             </div>
           )}
           {activeTab === "assets" && project && (
-            <AssetLibrary
-              project={project}
-              assets={assets}
-              assetReport={assetReport}
-              onImport={importAssets}
-              onAnalyze={runAssetIntelligence}
-              onDropAsset={(asset) => updateProject(addAssetToFirstScene(project, asset))}
-              onProjectChange={updateProject}
-              onReplaceAsset={(assetKey) => { void replaceProjectAsset(assetKey); }}
-              onFirstAiEdit={openFirstAiEditGuide}
-            />
+            <Suspense fallback={<PanelFallback label="Loading media bin..." className="assets-pane panel-loading" />}>
+              <AssetLibrary
+                project={project}
+                assets={assets}
+                assetReport={assetReport}
+                onImport={importAssets}
+                onAnalyze={runAssetIntelligence}
+                onDropAsset={(asset) => updateProject(addAssetToFirstScene(project, asset))}
+                onProjectChange={updateProject}
+                onReplaceAsset={(assetKey) => { void replaceProjectAsset(assetKey); }}
+                onFirstAiEdit={openFirstAiEditGuide}
+              />
+            </Suspense>
           )}
           {activeTab === "director" && (
             <DirectorWorkspace
@@ -4775,52 +4779,58 @@ function EditorMode({
   return (
     <div className="professional-editor">
       <div className="editor-preview-stack">
-        <PreviewWindow
-          project={project}
-          previewPath={previewPath}
-          realtimePreview={realtimePreview}
-          interactivePreview={interactivePreview}
-          previewTimeSeconds={previewTimeSeconds}
-          setPreviewTimeSeconds={setPreviewTimeSeconds}
-          previewQualityMode={previewQualityMode}
-          setPreviewQualityMode={setPreviewQualityMode}
-          previewScope={previewScope}
-          setPreviewScope={setPreviewScope}
-          previewSceneId={previewSceneId}
-          setPreviewSceneId={setPreviewSceneId}
-          preset={preset}
-          exportFormat={exportFormat}
-          qualityReport={qualityReport}
-          duration={project ? totalTimelineDuration(project) : 0}
-          onRealtimePreview={onRealtimePreview}
-          onInteractivePreview={onInteractivePreview}
-          onProjectChange={onProjectChange}
-          onProjectPreviewChange={onProjectPreviewChange}
-        />
-        {project ? (
-          <VisualTimeline
+        <Suspense fallback={<PanelFallback label="Loading preview..." className="preview-pane panel-loading" />}>
+          <PreviewWindow
             project={project}
-            onProjectChange={onProjectChange}
+            previewPath={previewPath}
+            realtimePreview={realtimePreview}
             interactivePreview={interactivePreview}
-            onAutosaveNow={onAutosaveNow}
-            onDuplicateProject={onDuplicateProject}
-            versionCount={versionCount}
-            recoveryCount={recoveryCount}
+            previewTimeSeconds={previewTimeSeconds}
+            setPreviewTimeSeconds={setPreviewTimeSeconds}
+            previewQualityMode={previewQualityMode}
+            setPreviewQualityMode={setPreviewQualityMode}
+            previewScope={previewScope}
+            setPreviewScope={setPreviewScope}
+            previewSceneId={previewSceneId}
+            setPreviewSceneId={setPreviewSceneId}
+            preset={preset}
+            exportFormat={exportFormat}
+            qualityReport={qualityReport}
+            duration={project ? totalTimelineDuration(project) : 0}
+            onRealtimePreview={onRealtimePreview}
+            onInteractivePreview={onInteractivePreview}
+            onProjectChange={onProjectChange}
+            onProjectPreviewChange={onProjectPreviewChange}
           />
+        </Suspense>
+        {project ? (
+          <Suspense fallback={<PanelFallback label="Loading timeline..." className="timeline-pane panel" />}>
+            <VisualTimeline
+              project={project}
+              onProjectChange={onProjectChange}
+              interactivePreview={interactivePreview}
+              onAutosaveNow={onAutosaveNow}
+              onDuplicateProject={onDuplicateProject}
+              versionCount={versionCount}
+              recoveryCount={recoveryCount}
+            />
+          </Suspense>
         ) : <div className="timeline-pane panel"><span className="muted">Import media or open a project to show the timeline.</span></div>}
       </div>
       <aside className="media-bin-panel">
-        <AssetLibrary
-          project={project || blankProject()}
-          assets={assets}
-          assetReport={assetReport}
-          onImport={onImport}
-          onAnalyze={onAnalyze}
-          onDropAsset={onDropAsset}
-          onProjectChange={onProjectChange}
-          onReplaceAsset={onReplaceAsset}
-          onFirstAiEdit={onFirstAiEdit}
-        />
+        <Suspense fallback={<PanelFallback label="Loading media bin..." className="assets-pane panel-loading" />}>
+          <AssetLibrary
+            project={project || blankProject()}
+            assets={assets}
+            assetReport={assetReport}
+            onImport={onImport}
+            onAnalyze={onAnalyze}
+            onDropAsset={onDropAsset}
+            onProjectChange={onProjectChange}
+            onReplaceAsset={onReplaceAsset}
+            onFirstAiEdit={onFirstAiEdit}
+          />
+        </Suspense>
       </aside>
     </div>
   );
@@ -5567,7 +5577,9 @@ function DiagnosticsMode({
       </section>
       <details className="wide-panel" open>
         <summary>JSON timeline viewer</summary>
-        <JsonEditor text={projectText} schemaReady={engineReady} onChange={onJsonChange} onMount={onEditorMount} validation={validation} />
+        <Suspense fallback={<PanelFallback label="Loading JSON editor..." className="editor-pane panel-loading" />}>
+          <JsonEditor text={projectText} schemaReady={engineReady} onChange={onJsonChange} onMount={onEditorMount} validation={validation} />
+        </Suspense>
       </details>
       <section>{workflow}</section>
     </div>
@@ -6562,7 +6574,9 @@ function EditorModal({
             />
           )}
           {modal === "shortcuts" && (
-            <KeyboardShortcutsPanel />
+            <Suspense fallback={<PanelFallback label="Loading shortcuts..." />}>
+              <KeyboardShortcutsPanel />
+            </Suspense>
           )}
           {modal === "workspace" && (
             <WorkspacePersonalizationPanel
@@ -6599,10 +6613,14 @@ function EditorModal({
             </div>
           )}
           {modal === "help" && (
-            <HelpCenter onOpenDocs={onOpenDocs} onOpenShortcuts={onShowShortcuts} />
+            <Suspense fallback={<PanelFallback label="Loading help..." />}>
+              <HelpCenter onOpenDocs={onOpenDocs} onOpenShortcuts={onShowShortcuts} />
+            </Suspense>
           )}
           {modal === "json" && (
-            <JsonEditor text={projectText} schemaReady={engineReady} onChange={onJsonChange} onMount={onEditorMount} validation={validation} />
+            <Suspense fallback={<PanelFallback label="Loading JSON editor..." className="editor-pane panel-loading" />}>
+              <JsonEditor text={projectText} schemaReady={engineReady} onChange={onJsonChange} onMount={onEditorMount} validation={validation} />
+            </Suspense>
           )}
           {modal === "logs" && (
             <div className="logs-modal">
@@ -7003,67 +7021,6 @@ function OnboardingFlow({
       <section className="wide-panel onboarding-finish">
         <label className="check-control"><input type="checkbox" checked={draft.beginnerTips} onChange={(event) => setDraft((current) => ({ ...current, beginnerTips: event.target.checked }))} /> Show beginner tips while I learn</label>
         <button className="primary-create" onClick={onComplete}><CheckCircle2 size={15} /> Finish Setup</button>
-      </section>
-    </div>
-  );
-}
-
-function KeyboardShortcutsPanel() {
-  const shortcuts = [
-    ["Ctrl+S", "Save project"],
-    ["Ctrl+O", "Open project"],
-    ["Ctrl+Enter", "Generate preview render"],
-    ["Ctrl+Z", "Undo inside active editor/timeline"],
-    ["Ctrl+Y", "Redo inside active editor/timeline"],
-    ["Delete", "Ripple delete selected timeline scene"],
-    ["Arrow Left / Right", "Nudge selected scene by snap amount"],
-    ["Shift+Arrow", "Nudge selected scene faster"]
-  ];
-  return (
-    <div className="shortcut-panel">
-      <section className="wide-panel">
-        <h2><Keyboard size={16} /> Keyboard Shortcuts</h2>
-        <div className="shortcut-grid">
-          {shortcuts.map(([keys, label]) => (
-            <span key={keys}><kbd>{keys}</kbd><strong>{label}</strong></span>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function HelpCenter({ onOpenDocs, onOpenShortcuts }: { onOpenDocs: () => void; onOpenShortcuts: () => void }) {
-  const prompts = [
-    "Make this into a YouTube Short with clean captions.",
-    "Create a premium cinematic product showcase from this screen recording.",
-    "Find the strongest moments, remove dead air, and add smooth zooms.",
-    "Make this tutorial clear, slower paced, and easy to read."
-  ];
-  return (
-    <div className="help-center">
-      <section className="wide-panel">
-        <h2><CircleHelp size={16} /> What does this app do?</h2>
-        <p className="muted">It turns local media into an editable JSON timeline, lets AI propose edits for review, previews the result, then exports through FFmpeg. Advanced users can still open the raw JSON and logs.</p>
-        <div className="button-grid compact">
-          <button onClick={onOpenDocs}><CircleHelp size={16} /> Open bundled local docs</button>
-          <button onClick={onOpenShortcuts}><Keyboard size={16} /> Keyboard shortcuts</button>
-        </div>
-      </section>
-      <section className="wide-panel">
-        <h2><Sparkles size={16} /> Example prompts</h2>
-        <div className="example-prompt-grid">
-          {prompts.map((item) => <span key={item}>{item}</span>)}
-        </div>
-      </section>
-      <section className="wide-panel">
-        <h2><Wand2 size={16} /> Beginner tips</h2>
-        <div className="tip-card-grid">
-          <span><strong>Start simple</strong> Import one video, choose Quick Create, then preview.</span>
-          <span><strong>Review before applying</strong> AI plans show scenes and captions before changing the timeline.</span>
-          <span><strong>Export last</strong> Use preview first, then run preflight before final render.</span>
-          <span><strong>Advanced tools stay available</strong> JSON, logs, and diagnostics live under Advanced/Logs.</span>
-        </div>
       </section>
     </div>
   );
@@ -7744,1673 +7701,6 @@ function Dashboard({
           ))}
         </div>
       </details>
-    </div>
-  );
-}
-
-function JsonEditor({
-  text,
-  schemaReady,
-  onChange,
-  onMount,
-  validation
-}: {
-  text: string;
-  schemaReady: boolean;
-  onChange: (value: string) => void;
-  onMount: OnMount;
-  validation: EngineResult | null;
-}) {
-  return (
-    <div className="editor-pane">
-      <Editor
-        height="100%"
-        defaultLanguage="json"
-        value={text}
-        theme="vs-dark"
-        loading="Loading Monaco..."
-        options={{
-          minimap: { enabled: false },
-          fontSize: 14,
-          wordWrap: "on",
-          tabSize: 2,
-          scrollBeyondLastLine: false,
-          automaticLayout: true,
-          formatOnPaste: true,
-          formatOnType: true
-        }}
-        onMount={onMount}
-        onChange={(value) => onChange(value || "")}
-      />
-      <div className="validation-strip">
-        <span>{schemaReady ? "Schema validation active" : "Loading schema..."}</span>
-        {validation && <span className={validation.ok ? "ok" : "error"}>{validation.ok ? "Valid JSON" : validation.stderr || validation.stdout}</span>}
-      </div>
-    </div>
-  );
-}
-
-function VisualTimeline({
-  project,
-  onProjectChange,
-  interactivePreview,
-  onAutosaveNow,
-  onDuplicateProject,
-  versionCount = 0,
-  recoveryCount = 0
-}: {
-  project: ProjectData;
-  onProjectChange: (project: ProjectData) => void;
-  interactivePreview?: InteractivePreviewState | null;
-  onAutosaveNow?: () => void;
-  onDuplicateProject?: () => void;
-  versionCount?: number;
-  recoveryCount?: number;
-}) {
-  const [zoom, setZoom] = useState(1);
-  const [snapSeconds, setSnapSeconds] = useState(0.25);
-  const [rippleEdits, setRippleEdits] = useState(true);
-  const [selectedScene, setSelectedScene] = useState(0);
-  const [markerLabel, setMarkerLabel] = useState("");
-  const [renameDraft, setRenameDraft] = useState(project.timeline?.[0]?.id || "");
-  const [groupName, setGroupName] = useState("");
-  const [undoStack, setUndoStack] = useState<Array<{ label: string; project: ProjectData }>>([]);
-  const [redoStack, setRedoStack] = useState<Array<{ label: string; project: ProjectData }>>([]);
-  const [lastTimelineAction, setLastTimelineAction] = useState("ready");
-  const [hoverClip, setHoverClip] = useState<{ x: number; y: number; sceneId: string; time: number; frame?: string } | null>(null);
-  const [trackState, setTrackState] = useState<TimelineTrackState>({
-    main: { locked: false, hidden: false },
-    audio: { locked: false, hidden: false, muted: false, solo: false },
-    captions: { locked: false, hidden: false },
-    broll: { locked: false, hidden: false },
-    graphics: { locked: false, hidden: false },
-    effects: { locked: false, hidden: false },
-    ai: { locked: false, hidden: false }
-  });
-  const duration = Math.max(totalTimelineDuration(project), 1);
-  const pxPerSecond = 70 * zoom;
-  const width = duration * pxPerSecond;
-  const layerCounts = collectLayerTypes(project);
-  const timelineMeta = project.metadata?.timeline as Record<string, unknown> | undefined;
-  const savedTimelineMarkers = Array.isArray(timelineMeta?.markers)
-    ? (timelineMeta.markers as Array<Record<string, unknown>>)
-    : [];
-  const reviewMeta = project.metadata?.previewReview as Record<string, unknown> | undefined;
-  const previewMarkers = Array.isArray(reviewMeta?.markers)
-    ? (reviewMeta.markers as Array<Record<string, unknown>>).map((marker) => ({
-      ...marker,
-      label: marker.note || marker.label || marker.type || "review"
-    }))
-    : [];
-  const timelineMarkers = [...savedTimelineMarkers, ...previewMarkers];
-  const selected = project.timeline?.[selectedScene];
-
-  useEffect(() => {
-    setRenameDraft(project.timeline?.[selectedScene]?.id || "");
-  }, [project.timeline, selectedScene]);
-
-  function clampSelected(index: number) {
-    return Math.max(0, Math.min(index, Math.max((project.timeline?.length || 1) - 1, 0)));
-  }
-
-  function isMainLocked(sceneIndex = selectedScene) {
-    return Boolean(trackState.main.locked || project.timeline?.[sceneIndex]?.locked);
-  }
-
-  function pushUndo(label: string) {
-    setUndoStack((items) => [...items.slice(-24), { label, project: structuredClone(project) }]);
-    setRedoStack([]);
-    setLastTimelineAction(label);
-  }
-
-  function commitTimelineChange(next: ProjectData, label: string, nextSelection = selectedScene) {
-    pushUndo(label);
-    setSelectedScene(Math.max(0, Math.min(nextSelection, Math.max((next.timeline?.length || 1) - 1, 0))));
-    onProjectChange(next);
-  }
-
-  function undoTimeline() {
-    const item = undoStack.at(-1);
-    if (!item) return;
-    setUndoStack((items) => items.slice(0, -1));
-    setRedoStack((items) => [...items.slice(-24), { label: "redo snapshot", project: structuredClone(project) }]);
-    setLastTimelineAction(`undid ${item.label}`);
-    setSelectedScene(0);
-    onProjectChange(item.project);
-  }
-
-  function redoTimeline() {
-    const item = redoStack.at(-1);
-    if (!item) return;
-    setRedoStack((items) => items.slice(0, -1));
-    setUndoStack((items) => [...items.slice(-24), { label: "undo snapshot", project: structuredClone(project) }]);
-    setLastTimelineAction("redid timeline action");
-    setSelectedScene(0);
-    onProjectChange(item.project);
-  }
-
-  function toggleTrack(track: TimelineTrackId, key: "locked" | "hidden" | "muted" | "solo") {
-    setTrackState((state) => ({
-      ...state,
-      [track]: {
-        ...state[track],
-        [key]: !state[track][key]
-      }
-    }));
-  }
-
-  function trackForLayer(layer: LayerData): TimelineTrackId {
-    if (layer.type === "audio" || layer.type === "music" || layer.type === "sfx") return "audio";
-    if (layer.type === "caption" || layer.type === "captions" || layer.type === "subtitle") return "captions";
-    if (layer.type === "text" || layer.type === "lower_third" || layer.type === "shape" || layer.type === "graphic") return "graphics";
-    if (layer.type === "effect" || layer.type === "adjustment" || layer.type === "blur" || layer.type === "filter" || layer.type === "lut") return "effects";
-    if (layer.type === "image" || layer.type === "overlay" || layer.type === "broll") return "broll";
-    return "main";
-  }
-
-  function uniqueSceneId(base: string, scenes: SceneData[]) {
-    const used = new Set(scenes.map((scene) => scene.id));
-    let candidate = base;
-    let index = 2;
-    while (used.has(candidate)) {
-      candidate = `${base}_${index}`;
-      index += 1;
-    }
-    return candidate;
-  }
-
-  const beginResize = (sceneIndex: number, event: React.PointerEvent) => {
-    if (isMainLocked(sceneIndex)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    pushUndo("resize scene");
-    const startX = event.clientX;
-    const original = project.timeline?.[sceneIndex]?.duration || 1;
-    const move = (moveEvent: PointerEvent) => {
-      const delta = (moveEvent.clientX - startX) / pxPerSecond;
-      onProjectChange(updateSceneTimingAdvanced(project, sceneIndex, { duration: Math.max(0.25, Number((original + delta).toFixed(3))) }, { ripple: rippleEdits, snapSeconds }));
-    };
-    const stop = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", stop);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop);
-  };
-
-  const beginMove = (sceneIndex: number, event: React.PointerEvent) => {
-    if (isMainLocked(sceneIndex)) return;
-    if ((event.target as HTMLElement).closest("button, input")) return;
-    event.preventDefault();
-    pushUndo("drag scene");
-    const startX = event.clientX;
-    const original = project.timeline?.[sceneIndex]?.start || 0;
-    const move = (moveEvent: PointerEvent) => {
-      const delta = (moveEvent.clientX - startX) / pxPerSecond;
-      onProjectChange(updateSceneTimingAdvanced(project, sceneIndex, { start: Math.max(0, Number((original + delta).toFixed(3))) }, { ripple: false, snapSeconds }));
-    };
-    const stop = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", stop);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop);
-  };
-
-  const dropAsset = (sceneIndex: number, event: React.DragEvent) => {
-    event.preventDefault();
-    if (isMainLocked(sceneIndex)) return;
-    const assetKey = event.dataTransfer.getData("text/plain");
-    if (assetKey) commitTimelineChange(addAssetLayerToScene(project, sceneIndex, assetKey), "drop asset", sceneIndex);
-  };
-
-  const nudgeSelected = (delta: number) => {
-    const scene = project.timeline?.[selectedScene];
-    if (!scene || isMainLocked()) return;
-    pushUndo("nudge scene");
-    onProjectChange(updateSceneTimingAdvanced(project, selectedScene, { start: Math.max(0, Number(scene.start || 0) + delta) }, { ripple: false, snapSeconds }));
-  };
-
-  function splitSelectedScene() {
-    if (!selected || isMainLocked() || selected.duration < 0.5) return;
-    const scenes = structuredClone(project.timeline || []);
-    const scene = scenes[selectedScene];
-    const firstDuration = Math.max(0.25, Number((scene.duration / 2).toFixed(3)));
-    const secondDuration = Math.max(0.25, Number((scene.duration - firstDuration).toFixed(3)));
-    const first = { ...scene, duration: firstDuration };
-    const second = {
-      ...structuredClone(scene),
-      id: uniqueSceneId(`${scene.id}_split`, scenes),
-      start: Number((scene.start + firstDuration).toFixed(3)),
-      duration: secondDuration
-    };
-    scenes.splice(selectedScene, 1, first, second);
-    commitTimelineChange({ ...project, timeline: scenes }, "split scene", selectedScene + 1);
-  }
-
-  function trimSelected(delta: number) {
-    if (!selected || isMainLocked()) return;
-    const nextDuration = Math.max(0.25, Number((Number(selected.duration || 0) + delta).toFixed(3)));
-    commitTimelineChange(updateSceneTimingAdvanced(project, selectedScene, { duration: nextDuration }, { ripple: rippleEdits, snapSeconds }), "trim scene");
-  }
-
-  function rippleDeleteSelected() {
-    if (!selected || isMainLocked()) return;
-    const scenes = structuredClone(project.timeline || []);
-    const removed = scenes[selectedScene];
-    scenes.splice(selectedScene, 1);
-    if (rippleEdits) {
-      for (const scene of scenes) {
-        if (Number(scene.start || 0) > Number(removed.start || 0)) {
-          scene.start = Math.max(0, Number((Number(scene.start || 0) - Number(removed.duration || 0)).toFixed(3)));
-        }
-      }
-    }
-    commitTimelineChange({ ...project, timeline: scenes }, "ripple delete", clampSelected(selectedScene - 1));
-  }
-
-  function addMarker() {
-    if (!selected) return;
-    const next = structuredClone(project);
-    const metadata = { ...(next.metadata || {}) };
-    const timeline = { ...((metadata.timeline as Record<string, unknown> | undefined) || {}) };
-    const markers = Array.isArray(timeline.markers) ? [...(timeline.markers as Array<Record<string, unknown>>)] : [];
-    markers.push({
-      time: Number(selected.start || 0),
-      sceneId: selected.id,
-      type: "marker",
-      label: markerLabel.trim() || selected.id
-    });
-    timeline.markers = markers;
-    metadata.timeline = timeline;
-    next.metadata = metadata;
-    commitTimelineChange(next, "add marker");
-    setMarkerLabel("");
-  }
-
-  function snapSelectedToMarker() {
-    if (!selected || isMainLocked() || timelineMarkers.length === 0) return;
-    const nearest = timelineMarkers.reduce((best, marker) => {
-      const bestTime = Number(best.time || 0);
-      const markerTime = Number(marker.time || 0);
-      return Math.abs(markerTime - selected.start) < Math.abs(bestTime - selected.start) ? marker : best;
-    }, timelineMarkers[0]);
-    commitTimelineChange(updateSceneTimingAdvanced(project, selectedScene, { start: Number(nearest.time || 0) }, { ripple: false, snapSeconds }), "snap to marker");
-  }
-
-  function renameSelectedScene() {
-    if (!selected || isMainLocked()) return;
-    const nextName = renameDraft.trim();
-    if (!nextName || nextName === selected.id) return;
-    const next = structuredClone(project);
-    if (!next.timeline?.[selectedScene]) return;
-    const previousId = next.timeline[selectedScene].id;
-    next.timeline[selectedScene].id = uniqueSceneId(nextName, next.timeline.filter((_, index) => index !== selectedScene));
-    const metadata = next.metadata || {};
-    const timeline = metadata.timeline as Record<string, unknown> | undefined;
-    if (timeline && Array.isArray(timeline.markers)) {
-      timeline.markers = (timeline.markers as Array<Record<string, unknown>>).map((marker) =>
-        marker.sceneId === previousId ? { ...marker, sceneId: next.timeline?.[selectedScene]?.id } : marker
-      );
-    }
-    commitTimelineChange(next, "rename scene");
-  }
-
-  function groupSelectedScene() {
-    if (!selected || isMainLocked()) return;
-    const next = structuredClone(project);
-    if (!next.timeline?.[selectedScene]) return;
-    next.timeline[selectedScene].group = groupName.trim() || `group_${selectedScene + 1}`;
-    commitTimelineChange(next, "group scene");
-  }
-
-  function toggleSelectedSceneLock() {
-    if (!selected) return;
-    const next = structuredClone(project);
-    if (!next.timeline?.[selectedScene]) return;
-    next.timeline[selectedScene].locked = !next.timeline[selectedScene].locked;
-    commitTimelineChange(next, next.timeline[selectedScene].locked ? "lock scene" : "unlock scene");
-  }
-
-  function layerPillsForTrack(track: TimelineTrackId) {
-    return (project.timeline || []).flatMap((scene) =>
-      scene.layers
-        .map((layer, layerIndex) => ({ scene, layer, layerIndex }))
-        .filter(({ layer }) => trackForLayer(layer) === track)
-    );
-  }
-
-  function previewFrameForScene(sceneId: string) {
-    return interactivePreview?.sceneThumbnails?.find((thumb) => thumb.sceneId === sceneId)?.frame;
-  }
-
-  const laneRows: Array<{ id: TimelineTrackId; title: string; hint: string }> = [
-    { id: "main", title: "Main video", hint: `${project.timeline?.length || 0} scenes` },
-    { id: "audio", title: "Audio", hint: `${project.audio?.length || 0} tracks` },
-    { id: "captions", title: "Captions", hint: `${layerCounts.caption || layerCounts.captions || 0} layers` },
-    { id: "broll", title: "B-roll", hint: `${layerCounts.image || 0} images` },
-    { id: "graphics", title: "Text/graphics", hint: `${layerCounts.text || 0} text` },
-    { id: "effects", title: "Effects", hint: "transitions + filters" },
-    { id: "ai", title: "AI suggestions", hint: `${previewMarkers.length} markers` }
-  ];
-
-  function renderLaneBody(track: TimelineTrackId) {
-    if (track === "main") {
-      return (
-        <>
-          {timelineMarkers.map((marker, index) => (
-            <span
-              className="timeline-marker"
-              key={`${String(marker.sceneId || "marker")}-${index}`}
-              style={{ left: Number(marker.time || 0) * pxPerSecond }}
-              title={`${String(marker.type || "marker")}: ${String(marker.label || "")}`}
-            />
-          ))}
-          {(project.timeline || []).map((scene, index) => (
-            <div
-              className={`scene-block ${selectedScene === index ? "selected" : ""} ${scene.locked ? "locked" : ""}`}
-              key={scene.id}
-              onClick={() => setSelectedScene(index)}
-              onPointerDown={(event) => beginMove(index, event)}
-              onMouseMove={(event) => setHoverClip({
-                x: event.clientX + 14,
-                y: event.clientY + 14,
-                sceneId: scene.id,
-                time: Number(scene.start || 0),
-                frame: previewFrameForScene(scene.id)
-              })}
-              onMouseLeave={() => setHoverClip(null)}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => dropAsset(index, event)}
-              style={{ left: scene.start * pxPerSecond, width: Math.max(scene.duration * pxPerSecond, 42) }}
-            >
-              <strong>{scene.id}</strong>
-              <span>{scene.duration.toFixed(2)}s</span>
-              {scene.group && <small>{scene.group}</small>}
-              {scene.locked && <small>locked</small>}
-              {scene.transitionOut && <small>{String(scene.transitionOut.type || "transition")}</small>}
-              <button className="resize-handle" title="Drag timing handle" onPointerDown={(event) => beginResize(index, event)} />
-            </div>
-          ))}
-        </>
-      );
-    }
-
-    if (track === "audio") {
-      return (
-        <>
-          {(project.audio || []).map((audio, index) => (
-            <div
-              key={index}
-              className={`audio-pill ${trackState.audio.muted ? "muted-track" : ""} ${trackState.audio.solo ? "solo-track" : ""}`}
-              style={{
-                left: Number(audio.start || 0) * pxPerSecond,
-                width: Math.max(Number(audio.duration || duration) * pxPerSecond, 130)
-              }}
-            >
-              audio {String(audio.asset || "")}
-            </div>
-          ))}
-          {layerPillsForTrack("audio").map(({ scene, layer, layerIndex }) => (
-            <div
-              key={`${scene.id}-audio-${layerIndex}`}
-              className="audio-pill"
-              style={{
-                left: (scene.start + Number(layer.start || 0)) * pxPerSecond,
-                width: Math.max(Number(layer.duration || scene.duration) * pxPerSecond, 60)
-              }}
-            >
-              {layer.type} {layer.asset || ""}
-            </div>
-          ))}
-        </>
-      );
-    }
-
-    if (track === "effects") {
-      return (
-        <>
-          {(project.timeline || []).map((scene) => scene.transitionOut && (
-            <div
-              key={`${scene.id}-transition`}
-              className="layer-pill effect"
-              style={{
-                left: Math.max(0, (scene.start + scene.duration - Number(scene.transitionOut?.duration || 0.35)) * pxPerSecond),
-                width: Math.max(Number(scene.transitionOut?.duration || 0.35) * pxPerSecond, 46)
-              }}
-            >
-              transition {String(scene.transitionOut.type || "cut")}
-            </div>
-          ))}
-          {layerPillsForTrack("effects").map(({ scene, layer, layerIndex }) => (
-            <div
-              key={`${scene.id}-effects-${layerIndex}`}
-              className="layer-pill effect"
-              style={{
-                left: (scene.start + Number(layer.start || 0)) * pxPerSecond,
-                width: Math.max(Number(layer.duration || scene.duration) * pxPerSecond, 46)
-              }}
-            >
-              {layer.type}
-            </div>
-          ))}
-        </>
-      );
-    }
-
-    if (track === "ai") {
-      return (
-        <>
-          {(project.timeline || []).map((scene) => (
-            <div
-              key={`${scene.id}-ai`}
-              className={`layer-pill ai-pill ${scene.reviewStatus || ""}`}
-              style={{
-                left: Number(scene.start || 0) * pxPerSecond,
-                width: Math.max(Number(scene.duration || 0) * pxPerSecond, 54)
-              }}
-            >
-              {scene.reviewStatus || "review"} {scene.id}
-            </div>
-          ))}
-          {previewMarkers.map((marker, index) => (
-            <div
-              key={`ai-marker-${index}`}
-              className="layer-pill ai-pill marker-pill"
-              style={{
-                left: Number(marker.time || 0) * pxPerSecond,
-                width: 120
-              }}
-            >
-              {String(marker.label || marker.type || "note")}
-            </div>
-          ))}
-        </>
-      );
-    }
-
-    return (
-      <>
-        {layerPillsForTrack(track).map(({ scene, layer, layerIndex }) => (
-          <div
-            key={`${scene.id}-${track}-${layerIndex}`}
-            className={`layer-pill ${layer.type}`}
-            style={{
-              left: (scene.start + Number(layer.start || 0)) * pxPerSecond,
-              width: Math.max(Number(layer.duration || scene.duration) * pxPerSecond, 48)
-            }}
-          >
-            {layer.type} {layer.asset || layer.text || ""}
-          </div>
-        ))}
-      </>
-    );
-  }
-
-  return (
-    <div
-      className="timeline-pane"
-      tabIndex={0}
-      onKeyDown={(event) => {
-        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
-          event.preventDefault();
-          undoTimeline();
-          return;
-        }
-        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
-          event.preventDefault();
-          redoTimeline();
-          return;
-        }
-        if (event.key === "Delete") {
-          event.preventDefault();
-          rippleDeleteSelected();
-          return;
-        }
-        if (event.key === "ArrowLeft") {
-          event.preventDefault();
-          nudgeSelected(event.shiftKey ? -snapSeconds * 4 : -snapSeconds);
-        }
-        if (event.key === "ArrowRight") {
-          event.preventDefault();
-          nudgeSelected(event.shiftKey ? snapSeconds * 4 : snapSeconds);
-        }
-      }}
-    >
-      <div className="timeline-safety-bar">
-        <div>
-          <strong>Timeline safety</strong>
-          <span>{lastTimelineAction}</span>
-          <span>{versionCount} versions</span>
-          <span>{recoveryCount} restore points</span>
-        </div>
-        <div>
-          <button onClick={undoTimeline} disabled={undoStack.length === 0}><Undo2 size={14} /> Undo</button>
-          <button onClick={redoTimeline} disabled={redoStack.length === 0}><Redo2 size={14} /> Redo</button>
-          <button onClick={onAutosaveNow} disabled={!onAutosaveNow}><Save size={14} /> Auto-save</button>
-          <button onClick={onDuplicateProject} disabled={!onDuplicateProject}>Duplicate project</button>
-          <button onClick={toggleSelectedSceneLock}>{selected?.locked ? "Unlock scene" : "Lock scene"}</button>
-        </div>
-      </div>
-      <div className="timeline-tools">
-        <div className="timeline-tool-group">
-          <button onClick={splitSelectedScene} disabled={!selected || isMainLocked()}><Scissors size={15} /> Split</button>
-          <button onClick={() => trimSelected(-snapSeconds)} disabled={!selected || isMainLocked()}>Trim -</button>
-          <button onClick={() => trimSelected(snapSeconds)} disabled={!selected || isMainLocked()}>Trim +</button>
-          <button onClick={rippleDeleteSelected} disabled={!selected || isMainLocked()}>Ripple delete</button>
-        </div>
-        <div className="timeline-tool-group">
-          <button onClick={() => setZoom((value) => Math.max(0.5, Number((value - 0.25).toFixed(2))))}><ZoomOut size={15} /> Zoom</button>
-          <button onClick={() => setZoom((value) => Math.min(4, Number((value + 0.25).toFixed(2))))}><ZoomIn size={15} /> Zoom</button>
-          <label><input type="checkbox" checked={rippleEdits} onChange={(event) => setRippleEdits(event.target.checked)} /> ripple</label>
-          <label>
-            snap
-            <select value={snapSeconds} onChange={(event) => setSnapSeconds(Number(event.target.value))}>
-              <option value={0.05}>0.05s</option>
-              <option value={0.1}>0.10s</option>
-              <option value={0.25}>0.25s</option>
-              <option value={0.5}>0.50s</option>
-            </select>
-          </label>
-          <button onClick={snapSelectedToMarker} disabled={!selected || timelineMarkers.length === 0}>Snap marker</button>
-        </div>
-        <div className="timeline-tool-group timeline-tool-fields">
-          <input value={renameDraft} onChange={(event) => setRenameDraft(event.target.value)} onBlur={renameSelectedScene} onKeyDown={(event) => event.key === "Enter" && renameSelectedScene()} aria-label="Rename selected scene" />
-          <input value={groupName} onChange={(event) => setGroupName(event.target.value)} placeholder="group name" aria-label="Group name" />
-          <button onClick={groupSelectedScene} disabled={!selected || isMainLocked()}>Group clips</button>
-          <input value={markerLabel} onChange={(event) => setMarkerLabel(event.target.value)} placeholder="marker note" aria-label="Marker label" />
-          <button onClick={addMarker} disabled={!selected}><Plus size={14} /> Marker</button>
-        </div>
-        <span>{duration.toFixed(1)}s</span>
-        <span>selected {selected?.id || "-"}</span>
-        <span>{Object.entries(layerCounts).map(([type, count]) => `${type}:${count}`).join(" | ")}</span>
-      </div>
-      <div className="timeline-scroll">
-        <div className="time-ruler" style={{ width: width + 154 }}>
-          {Array.from({ length: Math.ceil(duration) + 1 }).map((_, index) => (
-            <span key={index} style={{ left: 154 + index * pxPerSecond }}>{index}s</span>
-          ))}
-        </div>
-        <div className="timeline-lanes" style={{ width: width + 154 }}>
-          {laneRows.map((lane) => (
-            <div className={`timeline-lane ${lane.id} ${trackState[lane.id].hidden ? "hidden" : ""}`} key={lane.id}>
-              <div className="timeline-lane-header">
-                <strong>{lane.title}</strong>
-                <span>{lane.hint}</span>
-                <div className="track-controls">
-                  <button onClick={() => toggleTrack(lane.id, "locked")} className={trackState[lane.id].locked ? "active" : ""}>
-                    {trackState[lane.id].locked ? "Locked" : "Lock"}
-                  </button>
-                  <button onClick={() => toggleTrack(lane.id, "hidden")} className={trackState[lane.id].hidden ? "active" : ""}>
-                    {trackState[lane.id].hidden ? "Hidden" : "Hide"}
-                  </button>
-                  {lane.id === "audio" && (
-                    <>
-                      <button onClick={() => toggleTrack("audio", "muted")} className={trackState.audio.muted ? "active" : ""}>
-                        {trackState.audio.muted ? "Muted" : "Mute"}
-                      </button>
-                      <button onClick={() => toggleTrack("audio", "solo")} className={trackState.audio.solo ? "active" : ""}>
-                        {trackState.audio.solo ? "Soloed" : "Solo"}
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-              <div className="timeline-lane-body" style={{ width }}>
-                {trackState[lane.id].hidden ? <span className="track-hidden-label">track hidden</span> : renderLaneBody(lane.id)}
-              </div>
-            </div>
-          ))}
-        </div>
-        {hoverClip && (
-          <div className="timeline-hover-preview" style={{ left: hoverClip.x, top: hoverClip.y }}>
-            {hoverClip.frame ? <img src={window.ave.toFileUrl(hoverClip.frame)} alt="" /> : <div className="timeline-hover-placeholder"><MonitorPlay size={24} /></div>}
-            <strong>{hoverClip.sceneId}</strong>
-            <span>{hoverClip.time.toFixed(2)}s</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function PreviewWindow({
-  project,
-  previewPath,
-  realtimePreview,
-  interactivePreview,
-  previewTimeSeconds,
-  setPreviewTimeSeconds,
-  previewQualityMode,
-  setPreviewQualityMode,
-  previewScope,
-  setPreviewScope,
-  previewSceneId,
-  setPreviewSceneId,
-  preset,
-  exportFormat,
-  qualityReport,
-  duration,
-  onRealtimePreview,
-  onInteractivePreview,
-  onProjectChange,
-  onProjectPreviewChange
-}: {
-  project: ProjectData | null;
-  previewPath: string | null;
-  realtimePreview: Record<string, unknown> | null;
-  interactivePreview: InteractivePreviewState | null;
-  previewTimeSeconds: number;
-  setPreviewTimeSeconds: (value: number) => void;
-  previewQualityMode: string;
-  setPreviewQualityMode: (value: string) => void;
-  previewScope: "full" | "scene";
-  setPreviewScope: (value: "full" | "scene") => void;
-  previewSceneId: string;
-  setPreviewSceneId: (value: string) => void;
-  preset: string;
-  exportFormat: string;
-  qualityReport: Record<string, unknown> | null;
-  duration: number;
-  onRealtimePreview: () => void;
-  onInteractivePreview: () => void;
-  onProjectChange: (project: ProjectData) => void;
-  onProjectPreviewChange: (project: ProjectData) => Promise<void>;
-}) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const previewFrameRef = useRef<HTMLDivElement | null>(null);
-  const [time, setTime] = useState(0);
-  const [videoDuration, setVideoDuration] = useState(0);
-  const [playbackRate, setPlaybackRate] = useState(1);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [muted, setMuted] = useState(false);
-  const [volume, setVolume] = useState(0.85);
-  const [loop, setLoop] = useState(false);
-  const [performanceNotice, setPerformanceNotice] = useState("");
-  const [previewHover, setPreviewHover] = useState<{ x: number; y: number; sceneId: string; time: number; frame?: string } | null>(null);
-  const [overlays, setOverlays] = useState({
-    safeZones: true,
-    captions: true,
-    aspectGuides: true,
-    sceneMarkers: true,
-    aiSuggestions: true,
-    crop: true
-  });
-  const [markerType, setMarkerType] = useState<PreviewMarkerType>("needs_cut");
-  const [markerNote, setMarkerNote] = useState("");
-  const [previewNote, setPreviewNote] = useState("");
-  const [captionDraft, setCaptionDraft] = useState("");
-  const [sceneStartDraft, setSceneStartDraft] = useState(0);
-  const [sceneDurationDraft, setSceneDurationDraft] = useState(0);
-  const [transitionDraft, setTransitionDraft] = useState("crossfade");
-  const [transitionDurationDraft, setTransitionDurationDraft] = useState(0.35);
-  const [zoomDraft, setZoomDraft] = useState(1);
-  const [lightingDraft, setLightingDraft] = useState(0.35);
-  const [assetDraft, setAssetDraft] = useState("");
-  const [rangeEndDraft, setRangeEndDraft] = useState(0);
-  const src = previewPath ? window.ave.toFileUrl(previewPath) : "";
-  const framePath = typeof realtimePreview?.frame === "string" ? realtimePreview.frame : "";
-  const timelineDuration = Math.max(videoDuration || interactivePreview?.duration || duration || 0, 0);
-  const estimatedFinalDuration = Number(interactivePreview?.estimatedFinalDuration || duration || 0);
-  const fps = Number(interactivePreview?.fps || project?.project?.fps || 30);
-  const playheadPercent = timelineDuration ? Math.min(100, Math.max(0, (time / timelineDuration) * 100)) : 0;
-  const thumbnails = interactivePreview?.sceneThumbnails || [];
-  const waveformPath = interactivePreview?.waveformPath || "";
-  const selectedScene = project?.timeline?.find((scene) => scene.id === previewSceneId) || null;
-  const currentProjectTime = previewScope === "scene" && selectedScene ? Number(selectedScene.start || 0) + time : time;
-  const currentScene = project ? (previewScope === "scene" && selectedScene ? selectedScene : sceneAtTime(project, currentProjectTime)) : null;
-  const currentSceneId = currentScene?.id || previewSceneId || project?.timeline?.[0]?.id || "";
-  const assetKeys = Object.keys(project?.assets || {});
-  const review = project?.metadata?.previewReview as Record<string, unknown> | undefined;
-  const markers = Array.isArray(review?.markers) ? review.markers as PreviewReviewMarker[] : [];
-  const notes = Array.isArray(review?.notes) ? review.notes as Array<Record<string, unknown>> : [];
-  const readiness = project ? previewExportReadiness(project) : { active: false, ready: true, warnings: [], approved: 0, total: 0 };
-  const versionComparison = project ? comparePreviewVersions(project) : "";
-  const qualityIssueCount = Number(qualityReport?.issueCount ?? (Array.isArray(qualityReport?.issues) ? qualityReport.issues.length : 0));
-
-  useEffect(() => {
-    if (!currentScene) return;
-    setCaptionDraft(sceneCaption(currentScene));
-    setSceneStartDraft(Number(currentScene.start || 0));
-    setSceneDurationDraft(Number(currentScene.duration || 0));
-    setTransitionDraft(String(currentScene.transitionOut?.type || "cut"));
-    setTransitionDurationDraft(Number(currentScene.transitionOut?.duration || 0));
-    const media = currentScene.layers?.find((layer) => layer.type === "video" || layer.type === "image");
-    setZoomDraft(Number(media?.scale || 1));
-    setAssetDraft(String(media?.asset || ""));
-    const post = currentScene.postProcessing as Record<string, unknown> | undefined;
-    setLightingDraft(Number(post?.glow || 0.35));
-    setRangeEndDraft(Number(currentScene.start || 0) + Number(currentScene.duration || 0));
-  }, [currentScene?.id]);
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      const video = videoRef.current as (HTMLVideoElement & { getVideoPlaybackQuality?: () => { totalVideoFrames: number; droppedVideoFrames: number } }) | null;
-      const quality = video?.getVideoPlaybackQuality?.();
-      if (!quality || quality.totalVideoFrames < 90) return;
-      const dropRate = quality.droppedVideoFrames / Math.max(quality.totalVideoFrames, 1);
-      if (dropRate > 0.08 && previewQualityMode !== "draft") {
-        setPreviewQualityMode("draft");
-        setPerformanceNotice("Preview quality lowered to Performance because playback was dropping frames.");
-      }
-    }, 2500);
-    return () => window.clearInterval(interval);
-  }, [previewQualityMode, setPreviewQualityMode]);
-
-  function syncVideo(nextTime: number) {
-    const clamped = Math.max(0, Math.min(nextTime, timelineDuration || nextTime));
-    if (videoRef.current) videoRef.current.currentTime = clamped;
-    setTime(clamped);
-  }
-
-  function setRate(nextRate: number) {
-    setPlaybackRate(nextRate);
-    if (videoRef.current) videoRef.current.playbackRate = nextRate;
-  }
-
-  function playPreview() {
-    void videoRef.current?.play();
-  }
-
-  function pausePreview() {
-    videoRef.current?.pause();
-  }
-
-  function stopPreview() {
-    videoRef.current?.pause();
-    syncVideo(0);
-  }
-
-  function restartPreview() {
-    syncVideo(0);
-    void videoRef.current?.play();
-  }
-
-  function toggleFullscreen() {
-    const element = previewFrameRef.current;
-    if (!element) return;
-    if (document.fullscreenElement) {
-      void document.exitFullscreen();
-    } else {
-      void element.requestFullscreen();
-    }
-  }
-
-  function scrubTimeline(nextTime: number) {
-    setPreviewTimeSeconds(nextTime);
-    syncVideo(nextTime);
-  }
-
-  function sceneThumbnail(sceneId: string) {
-    return thumbnails.find((thumb) => thumb.sceneId === sceneId)?.frame;
-  }
-
-  function toggleOverlay(key: keyof typeof overlays) {
-    setOverlays((value) => ({ ...value, [key]: !value[key] }));
-  }
-
-  function jumpToScene(sceneId: string) {
-    setPreviewSceneId(sceneId);
-    const scene = project?.timeline?.find((item) => item.id === sceneId);
-    syncVideo(previewScope === "scene" ? 0 : Number(scene?.start || 0));
-  }
-
-  function timestamp(value: number) {
-    const minutes = Math.floor(value / 60);
-    const seconds = value - minutes * 60;
-    return `${minutes}:${seconds.toFixed(2).padStart(5, "0")}`;
-  }
-
-  function sceneCaption(scene: NonNullable<ProjectData["timeline"]>[number]) {
-    const captionLayer = scene.layers?.find((layer) => layer.type === "caption" || layer.type === "captions");
-    const items = Array.isArray(captionLayer?.items) ? captionLayer.items as Array<Record<string, unknown>> : [];
-    if (items[0]?.text) return String(items[0].text);
-    const textLayer = scene.layers?.find((layer) => layer.type === "text" || layer.type === "lower_third");
-    return String(textLayer?.text || "");
-  }
-
-  function commitReview(next: ProjectData, rebuild = false) {
-    if (rebuild) {
-      void onProjectPreviewChange(next);
-    } else {
-      onProjectChange(next);
-    }
-  }
-
-  function addMarker(type = markerType) {
-    if (!project || !currentSceneId) return;
-    commitReview(addPreviewReviewMarker(project, { type, time: currentProjectTime, sceneId: currentSceneId, note: markerNote || undefined }));
-    setMarkerNote("");
-  }
-
-  function addNote() {
-    if (!project || !currentSceneId || !previewNote.trim()) return;
-    commitReview(addPreviewReviewNote(project, { text: previewNote, time: currentProjectTime, sceneId: currentSceneId }));
-    setPreviewNote("");
-  }
-
-  function setSceneStatus(status: "approved" | "needs_review" | "locked" | "regenerated" | "excluded") {
-    if (!project || !currentSceneId) return;
-    commitReview(setSceneReviewStatus(project, currentSceneId, status), status === "excluded");
-  }
-
-  function applyPauseEdit(rebuild = true) {
-    if (!project || !currentSceneId) return;
-    const patch: PauseEditPatch = {
-      captionText: captionDraft,
-      start: sceneStartDraft,
-      duration: sceneDurationDraft,
-      transitionType: transitionDraft,
-      transitionDuration: transitionDurationDraft,
-      zoomAmount: zoomDraft,
-      lightingIntensity: lightingDraft,
-      assetKey: assetDraft || undefined
-    };
-    commitReview(applyPreviewPauseEdit(project, currentSceneId, patch), rebuild);
-  }
-
-  function regenerate(action: PreviewRegenerateAction) {
-    if (!project || !currentSceneId) return;
-    commitReview(regeneratePreviewSection(project, currentSceneId, action, { fromTime: currentProjectTime, toTime: rangeEndDraft }), true);
-  }
-
-  return (
-    <div className="preview-pane">
-      <div className="preview-frame" ref={previewFrameRef}>
-        {src ? (
-          <>
-            <video
-              ref={videoRef}
-              src={src}
-              loop={loop}
-              muted={muted}
-              onPlay={(event) => { setIsPlaying(true); event.currentTarget.playbackRate = playbackRate; event.currentTarget.volume = volume; }}
-              onPause={() => setIsPlaying(false)}
-              onEnded={() => setIsPlaying(false)}
-              onTimeUpdate={(event) => setTime(event.currentTarget.currentTime)}
-              onLoadedMetadata={(event) => {
-                setVideoDuration(event.currentTarget.duration || 0);
-                event.currentTarget.playbackRate = playbackRate;
-                event.currentTarget.volume = volume;
-              }}
-            />
-          </>
-        ) : framePath ? (
-          <>
-            <img className="preview-still" src={window.ave.toFileUrl(framePath)} alt="" />
-          </>
-        ) : (
-          <div className="empty-preview">Render a preview to scrub frames here.</div>
-        )}
-        <div className="preview-overlay-layer">
-          {overlays.safeZones && (
-            <>
-              <div className="safe-zone title-zone" />
-              <div className="safe-zone action-zone" />
-            </>
-          )}
-          {overlays.captions && <div className="caption-boundary"><span>caption safe area</span></div>}
-          {overlays.aspectGuides && (
-            <div className="aspect-guides">
-              <i />
-              <i />
-              <b />
-              <b />
-            </div>
-          )}
-          {overlays.crop && <div className="crop-preview-guide"><span>crop preview</span></div>}
-          {overlays.sceneMarkers && (project?.timeline || []).map((scene) => {
-            const left = duration ? (Number(scene.start || 0) / duration) * 100 : 0;
-            return <span className="overlay-scene-marker" key={scene.id} style={{ left: `${left}%` }} title={scene.id} />;
-          })}
-          {overlays.aiSuggestions && markers.map((marker) => {
-            const left = timelineDuration ? (Number(marker.time || 0) / timelineDuration) * 100 : 0;
-            return <span className={`overlay-ai-marker ${marker.type}`} key={marker.id} style={{ left: `${left}%` }} title={`${marker.type}: ${marker.note || ""}`} />;
-          })}
-        </div>
-        <div className="preview-status-badges">
-          <span>{isPlaying ? "playing" : "paused"}</span>
-          <span>{previewQualityMode === "draft" ? "Performance" : previewQualityMode === "high" ? "Full quality" : "Balanced"}</span>
-          <span>{previewScope === "scene" ? "scene preview" : "full timeline"}</span>
-        </div>
-      </div>
-      <div className="preview-controls interactive-controls">
-        <div className="preview-toolbar">
-          <button onClick={onInteractivePreview}><RefreshCw size={16} /> Build Preview Cache</button>
-          <select value={previewQualityMode} onChange={(event) => setPreviewQualityMode(event.target.value)} title="Preview quality mode">
-            <option value="draft">Performance</option>
-            <option value="balanced">Balanced</option>
-            <option value="high">Full quality</option>
-          </select>
-          <select value={previewScope} onChange={(event) => setPreviewScope(event.target.value as "full" | "scene")} title="Preview scope">
-            <option value="full">full timeline</option>
-            <option value="scene">selected scene only</option>
-          </select>
-          <select value={previewSceneId} onChange={(event) => jumpToScene(event.target.value)} title="Jump to scene">
-            <option value="">jump to scene</option>
-            {(project?.timeline || []).map((scene) => <option key={scene.id} value={scene.id}>{scene.id}</option>)}
-          </select>
-          <span>{timestamp(time)} / {timestamp(timelineDuration)}</span>
-          {performanceNotice && <span className="preview-performance-note">{performanceNotice}</span>}
-        </div>
-        <div className="preview-toolbar">
-          <button onClick={playPreview}><Play size={16} /> Play</button>
-          <button onClick={pausePreview}><Pause size={16} /> Pause</button>
-          <button onClick={stopPreview}>Stop</button>
-          <button onClick={restartPreview}><RefreshCw size={16} /> Restart</button>
-          <button onClick={() => syncVideo(time - 1 / Math.max(fps, 1))}>Frame -</button>
-          <button onClick={() => syncVideo(time + 1 / Math.max(fps, 1))}>Frame +</button>
-          <button onClick={onRealtimePreview}><MonitorPlay size={16} /> Cache Frame</button>
-          <button onClick={toggleFullscreen}><Maximize2 size={16} /> Fullscreen</button>
-        </div>
-        <div className="preview-toolbar">
-          <select value={playbackRate} onChange={(event) => setRate(Number(event.target.value))} title="Playback speed">
-            <option value={0.25}>0.25x</option>
-            <option value={0.5}>0.5x</option>
-            <option value={1}>1x</option>
-            <option value={1.5}>1.5x</option>
-            <option value={2}>2x</option>
-          </select>
-          <button onClick={() => { const next = !muted; setMuted(next); if (videoRef.current) videoRef.current.muted = next; }}>{muted ? "Unmute" : "Mute"}</button>
-          <label className="inline-control">
-            Volume
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={volume}
-              onChange={(event) => {
-                const next = Number(event.target.value);
-                setVolume(next);
-                if (videoRef.current) videoRef.current.volume = next;
-              }}
-            />
-          </label>
-          <label className="check-control">
-            <input type="checkbox" checked={loop} onChange={(event) => setLoop(event.target.checked)} />
-            Loop preview
-          </label>
-          <span>final duration {timestamp(estimatedFinalDuration)}</span>
-        </div>
-        <div className="preview-toolbar overlay-toolbar">
-          <span>Overlays</span>
-          <label><input type="checkbox" checked={overlays.safeZones} onChange={() => toggleOverlay("safeZones")} /> Safe zones</label>
-          <label><input type="checkbox" checked={overlays.captions} onChange={() => toggleOverlay("captions")} /> Captions</label>
-          <label><input type="checkbox" checked={overlays.aspectGuides} onChange={() => toggleOverlay("aspectGuides")} /> Aspect guides</label>
-          <label><input type="checkbox" checked={overlays.sceneMarkers} onChange={() => toggleOverlay("sceneMarkers")} /> Scene markers</label>
-          <label><input type="checkbox" checked={overlays.aiSuggestions} onChange={() => toggleOverlay("aiSuggestions")} /> AI suggestions</label>
-          <label><input type="checkbox" checked={overlays.crop} onChange={() => toggleOverlay("crop")} /> Crop preview</label>
-        </div>
-        <input
-          type="range"
-          min={0}
-          max={Math.max(duration, 0)}
-          step={0.05}
-          value={Math.min(previewTimeSeconds, Math.max(duration, 0))}
-          onChange={(event) => scrubTimeline(Number(event.target.value))}
-          title="Realtime preview scrubber"
-        />
-        <input
-          type="range"
-          min={0}
-          max={timelineDuration || 0}
-          step={0.01}
-          value={time}
-          onChange={(event) => syncVideo(Number(event.target.value))}
-          title="Playable preview scrubber"
-        />
-        <div className="preview-timeline">
-          {(project?.timeline || []).map((scene) => {
-            const left = duration ? (Number(scene.start || 0) / duration) * 100 : 0;
-            const width = duration ? (Number(scene.duration || 0) / duration) * 100 : 0;
-            return (
-              <button
-                key={scene.id}
-                className="preview-scene-segment"
-                style={{ left: `${left}%`, width: `${Math.max(width, 2)}%` }}
-                onClick={() => jumpToScene(scene.id)}
-                onMouseMove={(event) => setPreviewHover({
-                  x: event.clientX + 14,
-                  y: event.clientY + 14,
-                  sceneId: scene.id,
-                  time: Number(scene.start || 0),
-                  frame: sceneThumbnail(scene.id)
-                })}
-                onMouseLeave={() => setPreviewHover(null)}
-                title={`${scene.id} ${Number(scene.duration || 0).toFixed(2)}s`}
-              >
-                {scene.id}
-              </button>
-            );
-          })}
-          <div className="preview-playhead" style={{ left: `${playheadPercent}%` }} />
-        </div>
-        {waveformPath && (
-          <div className="waveform-strip">
-            <img src={window.ave.toFileUrl(waveformPath)} alt="" />
-            <div className="preview-playhead" style={{ left: `${playheadPercent}%` }} />
-          </div>
-        )}
-        {thumbnails.length > 0 && (
-          <div className="scene-thumb-strip">
-            {thumbnails.map((thumb) => (
-              <button key={thumb.sceneId} className="scene-thumb" onClick={() => jumpToScene(thumb.sceneId)}>
-                <img src={window.ave.toFileUrl(thumb.frame)} alt="" />
-                <span>{thumb.sceneId}</span>
-              </button>
-            ))}
-          </div>
-        )}
-        {previewHover && (
-          <div className="timeline-hover-preview" style={{ left: previewHover.x, top: previewHover.y }}>
-            {previewHover.frame ? <img src={window.ave.toFileUrl(previewHover.frame)} alt="" /> : <div className="timeline-hover-placeholder"><MonitorPlay size={24} /></div>}
-            <strong>{previewHover.sceneId}</strong>
-            <span>{previewHover.time.toFixed(2)}s</span>
-          </div>
-        )}
-        {interactivePreview && (
-          <div className="metric-grid">
-            <span>mode <strong>{interactivePreview.qualityMode || previewQualityMode}</strong></span>
-            <span>scope <strong>{interactivePreview.scope || previewScope}</strong></span>
-            <span>cache <strong>{interactivePreview.cached ? "reused" : "fresh"}</strong></span>
-            <span>fps <strong>{String(interactivePreview.fps || fps)}</strong></span>
-          </div>
-        )}
-        {project && currentScene && (
-          <div className="preview-review-grid">
-            <section className="preview-review-card">
-              <h3>Review Markers</h3>
-              <div className="preview-toolbar">
-                <select value={markerType} onChange={(event) => setMarkerType(event.target.value as PreviewMarkerType)}>
-                  <option value="needs_cut">needs cut</option>
-                  <option value="too_slow">too slow</option>
-                  <option value="too_fast">too fast</option>
-                  <option value="bad_caption">bad caption</option>
-                  <option value="bad_zoom">bad zoom</option>
-                  <option value="bad_transition">bad transition</option>
-                  <option value="audio_issue">audio issue</option>
-                  <option value="keep">keep this section</option>
-                </select>
-                <input value={markerNote} onChange={(event) => setMarkerNote(event.target.value)} placeholder="marker note" />
-                <button onClick={() => addMarker()}><Plus size={15} /> Mark</button>
-                <button onClick={() => addMarker("keep")}><CheckCircle2 size={15} /> Keep</button>
-              </div>
-              <div className="review-list">
-                {markers.slice(-5).reverse().map((marker) => (
-                  <div className={`review-item ${marker.resolved ? "resolved" : ""}`} key={marker.id}>
-                    <strong>{marker.type.replace(/_/g, " ")}</strong>
-                    <span>{marker.sceneId} at {timestamp(Number(marker.time || 0))}</span>
-                    <small>{marker.note || (marker.resolved ? "resolved" : "open")}</small>
-                  </div>
-                ))}
-                {!markers.length && <p className="muted">No review markers yet.</p>}
-              </div>
-            </section>
-
-            <section className="preview-review-card">
-              <h3>Pause And Edit</h3>
-              <div className="control-grid">
-                <label>
-                  Scene
-                  <input value={currentSceneId} readOnly />
-                </label>
-                <label>
-                  Caption
-                  <input value={captionDraft} onChange={(event) => setCaptionDraft(event.target.value)} />
-                </label>
-                <label>
-                  Start
-                  <input type="number" step={0.05} value={sceneStartDraft} onChange={(event) => setSceneStartDraft(Number(event.target.value))} />
-                </label>
-                <label>
-                  Duration
-                  <input type="number" min={0.1} step={0.05} value={sceneDurationDraft} onChange={(event) => setSceneDurationDraft(Number(event.target.value))} />
-                </label>
-                <label>
-                  Transition
-                  <select value={transitionDraft} onChange={(event) => setTransitionDraft(event.target.value)}>
-                    <option value="cut">cut</option>
-                    <option value="crossfade">crossfade</option>
-                    <option value="fadeToBlack">fade to black</option>
-                    <option value="slide">slide</option>
-                    <option value="zoom">zoom</option>
-                  </select>
-                </label>
-                <label>
-                  Transition seconds
-                  <input type="number" min={0} step={0.05} value={transitionDurationDraft} onChange={(event) => setTransitionDurationDraft(Number(event.target.value))} />
-                </label>
-                <label>
-                  Zoom
-                  <input type="number" min={0.1} step={0.05} value={zoomDraft} onChange={(event) => setZoomDraft(Number(event.target.value))} />
-                </label>
-                <label>
-                  Lighting
-                  <input type="number" min={0} max={1} step={0.05} value={lightingDraft} onChange={(event) => setLightingDraft(Number(event.target.value))} />
-                </label>
-                <label>
-                  Replace asset
-                  <select value={assetDraft} onChange={(event) => setAssetDraft(event.target.value)}>
-                    <option value="">keep current</option>
-                    {assetKeys.map((key) => <option key={key} value={key}>{key}</option>)}
-                  </select>
-                </label>
-              </div>
-              <div className="button-grid compact">
-                <button onClick={() => applyPauseEdit(false)}><Save size={15} /> Apply JSON</button>
-                <button onClick={() => applyPauseEdit(true)}><MonitorPlay size={15} /> Apply + Preview</button>
-                <button onClick={() => currentSceneId && commitReview(applyPreviewPauseEdit(project, currentSceneId, { lockScene: true }))}>Lock Scene</button>
-                <button onClick={() => currentSceneId && commitReview(applyPreviewPauseEdit(project, currentSceneId, { removeScene: true }), true)}>Remove Scene</button>
-              </div>
-            </section>
-
-            <section className="preview-review-card">
-              <h3>Regenerate From Preview</h3>
-              <div className="control-grid">
-                <label>
-                  Range end
-                  <input type="number" min={currentProjectTime} step={0.05} value={rangeEndDraft} onChange={(event) => setRangeEndDraft(Number(event.target.value))} />
-                </label>
-              </div>
-              <div className="button-grid compact">
-                <button onClick={() => regenerate("scene")}>Current Scene</button>
-                <button onClick={() => regenerate("captions_from_here")}>Captions From Here</button>
-                <button onClick={() => regenerate("transitions")}>Transitions</button>
-                <button onClick={() => regenerate("music_sync")}>Music Sync</button>
-                <button onClick={() => regenerate("pacing")}>Pacing</button>
-                <button onClick={() => regenerate("selected_range")}>Selected Range</button>
-              </div>
-            </section>
-
-            <section className="preview-review-card">
-              <h3>Approval</h3>
-              <div className="button-grid compact">
-                <button onClick={() => setSceneStatus("approved")}><CheckCircle2 size={15} /> Approve</button>
-                <button onClick={() => setSceneStatus("needs_review")}>Needs Review</button>
-                <button onClick={() => setSceneStatus("locked")}>Lock</button>
-                <button onClick={() => setSceneStatus("excluded")}>Exclude From Final</button>
-              </div>
-              <div className="metric-grid">
-                <span>approved <strong>{readiness.approved}/{readiness.total}</strong></span>
-                <span>gate <strong>{readiness.ready ? "ready" : "blocked"}</strong></span>
-                <span>warnings <strong>{readiness.warnings.length}</strong></span>
-                <span>duration <strong>{timestamp(estimatedFinalDuration)}</strong></span>
-                <span>format <strong>{exportFormat}</strong></span>
-                <span>preset <strong>{preset}</strong></span>
-                <span>quality <strong>{qualityReport ? (qualityIssueCount ? `${qualityIssueCount} issue(s)` : "passed") : "not run"}</strong></span>
-              </div>
-              {readiness.warnings.slice(0, 4).map((warning) => <small className="warning-line" key={warning}>{warning}</small>)}
-            </section>
-
-            <section className="preview-review-card">
-              <h3>Notes</h3>
-              <div className="preview-toolbar">
-                <input value={previewNote} onChange={(event) => setPreviewNote(event.target.value)} placeholder="make this smoother, zoom in more, use darker lighting..." />
-                <button onClick={addNote}><Plus size={15} /> Add Note</button>
-              </div>
-              <div className="review-list">
-                {notes.slice(-4).reverse().map((note) => (
-                  <div className="review-item" key={String(note.id)}>
-                    <strong>{String(note.sceneId)}</strong>
-                    <span>{timestamp(Number(note.time || 0))}</span>
-                    <small>{String(note.text || "")}</small>
-                  </div>
-                ))}
-                {!notes.length && <p className="muted">Pause anywhere and leave a note tied to that timestamp.</p>}
-              </div>
-            </section>
-
-            <section className="preview-review-card">
-              <h3>A/B Versions</h3>
-              <div className="button-grid compact">
-                <button onClick={() => commitReview(savePreviewVersion(project, "A"))}>Save A</button>
-                <button onClick={() => commitReview(savePreviewVersion(project, "B"))}>Save B</button>
-                <button onClick={() => commitReview(restorePreviewVersion(project, "A"), true)}>Use A</button>
-                <button onClick={() => commitReview(restorePreviewVersion(project, "B"), true)}>Use B</button>
-              </div>
-              <pre className="mini-pre">{versionComparison}</pre>
-            </section>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-type MediaBinCategory = "all" | "videos" | "images" | "audio" | "voiceovers" | "captions" | "generated" | "url" | "project";
-type MediaSortMode = "name" | "date" | "duration";
-type MediaContextMenu = { x: number; y: number; assetKey: string } | null;
-
-function AssetLibrary({
-  project,
-  assets,
-  assetReport,
-  onImport,
-  onAnalyze,
-  onDropAsset,
-  onProjectChange,
-  onReplaceAsset,
-  onFirstAiEdit
-}: {
-  project: ProjectData;
-  assets: AssetCheck[];
-  assetReport: Record<string, unknown> | null;
-  onImport: () => void;
-  onAnalyze: () => void;
-  onDropAsset: (asset: ImportedAsset) => void;
-  onProjectChange: (project: ProjectData) => void;
-  onReplaceAsset: (assetKey: string) => void;
-  onFirstAiEdit: () => void;
-}) {
-  const [activeCategory, setActiveCategory] = useState<MediaBinCategory>("all");
-  const [query, setQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState<AssetCheck["type"] | "all">("all");
-  const [sortMode, setSortMode] = useState<MediaSortMode>("name");
-  const [showUnusedOnly, setShowUnusedOnly] = useState(false);
-  const [contextMenu, setContextMenu] = useState<MediaContextMenu>(null);
-  const [previewAssetKey, setPreviewAssetKey] = useState<string>("");
-  const [detailsAssetKey, setDetailsAssetKey] = useState<string>("");
-  const analyzedAssets = Array.isArray(assetReport?.assets) ? assetReport.assets as Array<Record<string, unknown>> : [];
-  const smartCollections = assetReport?.smartCollections && typeof assetReport.smartCollections === "object"
-    ? assetReport.smartCollections as Record<string, Array<Record<string, unknown>>>
-    : {};
-  const smartRecommendations = Array.isArray(assetReport?.recommendations) ? assetReport.recommendations as Array<Record<string, unknown>> : [];
-  const [activeSmartCollection, setActiveSmartCollection] = useState<string>("all");
-  const categories: Array<{ key: MediaBinCategory; label: string; icon: ReactNode }> = [
-    { key: "all", label: "All media", icon: <FolderOpen size={15} /> },
-    { key: "videos", label: "Videos", icon: <Video size={15} /> },
-    { key: "images", label: "Images", icon: <Image size={15} /> },
-    { key: "audio", label: "Audio", icon: <Music size={15} /> },
-    { key: "voiceovers", label: "Voiceovers", icon: <Mic size={15} /> },
-    { key: "captions", label: "Captions", icon: <Captions size={15} /> },
-    { key: "generated", label: "Generated assets", icon: <Sparkles size={15} /> },
-    { key: "url", label: "Downloaded URL media", icon: <Download size={15} /> },
-    { key: "project", label: "Project files", icon: <FileJson size={15} /> }
-  ];
-
-  useEffect(() => {
-    const close = () => setContextMenu(null);
-    window.addEventListener("click", close);
-    window.addEventListener("keydown", close);
-    return () => {
-      window.removeEventListener("click", close);
-      window.removeEventListener("keydown", close);
-    };
-  }, []);
-
-  function fileName(filePath: string) {
-    return filePath.split(/[\\/]/).pop() || filePath;
-  }
-
-  function extension(filePath: string) {
-    const name = fileName(filePath).toLowerCase();
-    const match = name.match(/\.([a-z0-9]+)$/);
-    return match ? match[1] : "";
-  }
-
-  function normalizedPath(filePath: string) {
-    return filePath.replace(/\\/g, "/").toLowerCase();
-  }
-
-  function analyzedFor(asset: AssetCheck) {
-    return analyzedAssets.find((item) =>
-      String(item.key || "") === asset.key ||
-      normalizedPath(String(item.path || item.activePath || item.projectPath || "")) === normalizedPath(asset.path)
-    );
-  }
-
-  function smartTags(meta?: Record<string, unknown>) {
-    return Array.isArray(meta?.smartTags) ? meta.smartTags.map((tag) => String(tag)) : [];
-  }
-
-  function recommendationText(meta?: Record<string, unknown>) {
-    if (!Array.isArray(meta?.recommendations)) return "";
-    return meta.recommendations.map((item) => String((item as Record<string, unknown>).message || "")).join(" ");
-  }
-
-  function itemMatchesCollection(asset: { key: string; path: string }, collection: string) {
-    if (collection === "all") return true;
-    const entries = smartCollections[collection] || [];
-    return entries.some((item) =>
-      String(item.key || "") === asset.key ||
-      normalizedPath(String(item.path || "")) === normalizedPath(asset.path)
-    );
-  }
-
-  function usageCount(assetKey: string) {
-    let count = 0;
-    for (const scene of project.timeline || []) {
-      for (const layer of scene.layers || []) {
-        if (layer.asset === assetKey) count += 1;
-      }
-    }
-    for (const audio of project.audio || []) {
-      if (audio.asset === assetKey) count += 1;
-    }
-    for (const caption of project.captions || []) {
-      if (caption.asset === assetKey) count += 1;
-    }
-    return count;
-  }
-
-  function assetCategory(asset: AssetCheck): MediaBinCategory {
-    const joined = `${asset.key} ${asset.path}`.toLowerCase();
-    const ext = extension(asset.path);
-    if (joined.includes("download") || joined.includes("url_media") || joined.includes("http_")) return "url";
-    if (joined.includes("generated") || joined.includes(".ave_media") || joined.includes("thumbnail") || joined.includes("preview")) return "generated";
-    if (["srt", "vtt", "ass", "ssa", "txt"].includes(ext) || joined.includes("caption") || joined.includes("subtitle")) return "captions";
-    if (asset.type === "audio" && /(voice|voiceover|narration|vo_|_vo|dialog)/.test(joined)) return "voiceovers";
-    if (asset.type === "video") return "videos";
-    if (asset.type === "image") return "images";
-    if (asset.type === "audio") return "audio";
-    return "project";
-  }
-
-  function mediaIcon(asset: AssetCheck, category: MediaBinCategory) {
-    if (category === "captions") return <Captions size={30} />;
-    if (category === "voiceovers") return <Mic size={30} />;
-    if (category === "generated") return <Sparkles size={30} />;
-    if (category === "url") return <Download size={30} />;
-    if (asset.type === "image") return <Image size={30} />;
-    if (asset.type === "audio") return <Music size={30} />;
-    if (asset.type === "video") return <Video size={30} />;
-    return <FileText size={30} />;
-  }
-
-  function durationFor(meta?: Record<string, unknown>) {
-    const duration = Number(meta?.duration ?? meta?.durationSeconds ?? 0);
-    return Number.isFinite(duration) && duration > 0 ? `${duration.toFixed(duration > 20 ? 0 : 1)}s` : "-";
-  }
-
-  function durationValue(meta?: Record<string, unknown>) {
-    const duration = Number(meta?.duration ?? meta?.durationSeconds ?? 0);
-    return Number.isFinite(duration) ? duration : 0;
-  }
-
-  function dateValue(asset: AssetCheck, meta?: Record<string, unknown>) {
-    return Number(asset.modifiedMs ?? meta?.modifiedMs ?? meta?.mtimeMs ?? 0) || 0;
-  }
-
-  function thumbnailFor(asset: AssetCheck, meta?: Record<string, unknown>) {
-    const thumbnail = String(meta?.thumbnail || meta?.thumbnailPath || meta?.previewThumbnail || "");
-    if (thumbnail) return thumbnail;
-    return asset.type === "image" && asset.exists ? asset.path : "";
-  }
-
-  function renameAsset(asset: AssetCheck) {
-    const nextKey = window.prompt("Rename asset in project", asset.key)?.trim();
-    if (!nextKey || nextKey === asset.key) return;
-    if (project.assets?.[nextKey]) {
-      window.alert("That asset name already exists.");
-      return;
-    }
-    const next = structuredClone(project);
-    next.assets = { ...(next.assets || {}) };
-    const existingValue = next.assets[asset.key];
-    if (!existingValue) return;
-    next.assets[nextKey] = existingValue;
-    delete next.assets[asset.key];
-    for (const scene of next.timeline || []) {
-      for (const layer of scene.layers || []) {
-        if (layer.asset === asset.key) layer.asset = nextKey;
-      }
-    }
-    for (const audio of next.audio || []) {
-      if (audio.asset === asset.key) audio.asset = nextKey;
-    }
-    for (const caption of next.captions || []) {
-      if (caption.asset === asset.key) caption.asset = nextKey;
-    }
-    onProjectChange(next);
-  }
-
-  function removeFromProject(asset: AssetCheck) {
-    const used = usageCount(asset.key);
-    const message = used
-      ? `${asset.key} is used ${used} time(s). Remove it from the project and timeline references? This will not delete the original file.`
-      : `Remove ${asset.key} from the project? This will not delete the original file.`;
-    if (!window.confirm(message)) return;
-    const next = structuredClone(project);
-    next.assets = { ...(next.assets || {}) };
-    delete next.assets[asset.key];
-    next.timeline = (next.timeline || []).map((scene) => ({
-      ...scene,
-      layers: (scene.layers || []).filter((layer) => layer.asset !== asset.key)
-    }));
-    next.audio = (next.audio || []).filter((audio) => audio.asset !== asset.key);
-    next.captions = (next.captions || []).filter((caption) => caption.asset !== asset.key);
-    onProjectChange(next);
-  }
-
-  function contextAction(asset: AssetCheck, action: "add" | "preview" | "rename" | "replace" | "reveal" | "remove" | "details") {
-    setContextMenu(null);
-    if (action === "add") onDropAsset({ key: asset.key, path: asset.path, type: asset.type });
-    if (action === "preview") setPreviewAssetKey(asset.key);
-    if (action === "rename") renameAsset(asset);
-    if (action === "replace") onReplaceAsset(asset.key);
-    if (action === "reveal") void window.ave.revealPath(asset.path);
-    if (action === "remove") removeFromProject(asset);
-    if (action === "details") setDetailsAssetKey(asset.key);
-  }
-
-  const mediaItems = assets.map((asset) => {
-    const meta = analyzedFor(asset);
-    const category = assetCategory(asset);
-    const usedCount = usageCount(asset.key);
-    return {
-      ...asset,
-      category,
-      meta,
-      usedCount,
-      name: fileName(asset.path),
-      ext: extension(asset.path),
-      duration: durationFor(meta),
-      durationValue: durationValue(meta),
-      resolution: meta ? formatResolution(meta.resolution) : "-",
-      modifiedValue: dateValue(asset, meta),
-      thumbnail: thumbnailFor(asset, meta),
-      smartTags: smartTags(meta),
-      smartRecommendationText: recommendationText(meta),
-      searchText: String(meta?.searchText || "")
-    };
-  });
-
-  const filteredItems = mediaItems
-    .filter((asset) => activeCategory === "all" || asset.category === activeCategory)
-    .filter((asset) => itemMatchesCollection(asset, activeSmartCollection))
-    .filter((asset) => typeFilter === "all" || asset.type === typeFilter)
-    .filter((asset) => !showUnusedOnly || asset.usedCount === 0)
-    .filter((asset) => {
-      const haystack = `${asset.key} ${asset.name} ${asset.ext} ${asset.smartTags.join(" ")} ${asset.smartRecommendationText} ${asset.searchText}`.toLowerCase();
-      return haystack.includes(query.trim().toLowerCase());
-    })
-    .sort((a, b) => {
-      if (sortMode === "duration") return b.durationValue - a.durationValue;
-      if (sortMode === "date") return b.modifiedValue - a.modifiedValue;
-      return a.key.localeCompare(b.key);
-    });
-
-  const selectedPreview = mediaItems.find((asset) => asset.key === previewAssetKey);
-  const selectedDetails = mediaItems.find((asset) => asset.key === detailsAssetKey);
-  const menuAsset = contextMenu ? mediaItems.find((asset) => asset.key === contextMenu.assetKey) : null;
-
-  return (
-    <div className="assets-pane">
-      <div className="asset-tools">
-        <button onClick={onImport}><Plus size={15} /> Import Media</button>
-        <button onClick={onAnalyze}><CheckCircle2 size={15} /> Analyze</button>
-        <span>{Object.keys(project.assets || {}).length} JSON assets</span>
-        <span>{assets.filter((asset) => !asset.exists).length} missing</span>
-      </div>
-      {assets.length > 0 && (
-        <section className="first-ai-edit-card">
-          <div>
-            <span className="eyebrow">Next step</span>
-            <strong>Ready for your first AI edit</strong>
-            <p>Use AI Studio to describe the video you want. It will make a reviewable plan first, then you choose when to apply it.</p>
-          </div>
-          <ol>
-            <li>Generate AI plan</li>
-            <li>Review scenes and captions</li>
-            <li>Apply to timeline</li>
-            <li>Preview, then export</li>
-          </ol>
-          <button className="primary-create" onClick={onFirstAiEdit}><Sparkles size={15} /> Start first AI edit</button>
-        </section>
-      )}
-      <div className="media-bin-layout">
-        <aside className="media-bin-categories">
-          {categories.map((category) => (
-            <button
-              key={category.key}
-              className={activeCategory === category.key ? "active" : ""}
-              onClick={() => setActiveCategory(category.key)}
-            >
-              {category.icon}
-              <span>{category.label}</span>
-              <small>{category.key === "all" ? mediaItems.length : mediaItems.filter((asset) => asset.category === category.key).length}</small>
-            </button>
-          ))}
-        </aside>
-        <section className="media-bin-main">
-          <div className="smart-assets-panel">
-            <div className="panel-head-row">
-              <div>
-                <span className="eyebrow">Smart Assets</span>
-                <strong>Collections and suggestions</strong>
-              </div>
-              <button onClick={onAnalyze}><Sparkles size={14} /> Refresh analysis</button>
-            </div>
-            <div className="smart-collection-grid">
-              <button className={activeSmartCollection === "all" ? "active" : ""} onClick={() => setActiveSmartCollection("all")}>
-                <strong>All analyzed</strong>
-                <span>{analyzedAssets.length || mediaItems.length}</span>
-              </button>
-              {Object.entries(smartCollections).map(([name, items]) => (
-                <button className={activeSmartCollection === name ? "active" : ""} key={name} onClick={() => setActiveSmartCollection(name)}>
-                  <strong>{name}</strong>
-                  <span>{items.length}</span>
-                </button>
-              ))}
-            </div>
-            <div className="smart-recommendations">
-              {smartRecommendations.slice(0, 4).map((item, index) => (
-                <button key={`${String(item.asset)}-${index}`} onClick={() => {
-                  setQuery(String(item.asset || ""));
-                  setDetailsAssetKey(String(item.asset || ""));
-                }}>
-                  <strong>{String(item.asset || "asset")}</strong>
-                  <span>{String(item.message || item.type || "AI suggestion")}</span>
-                </button>
-              ))}
-              {!smartRecommendations.length && <span className="muted">Run Analyze to create smart tags, collections, recommendations, and searchable words.</span>}
-            </div>
-          </div>
-          <div className="media-bin-search">
-            <label>
-              <Search size={14} />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by name, spoken words, tags, emotion, or activity..." />
-            </label>
-            <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as AssetCheck["type"] | "all")}>
-              <option value="all">All types</option>
-              <option value="video">Video</option>
-              <option value="image">Image</option>
-              <option value="audio">Audio</option>
-              <option value="unknown">Project/other</option>
-            </select>
-            <select value={sortMode} onChange={(event) => setSortMode(event.target.value as MediaSortMode)}>
-              <option value="name">Sort by name</option>
-              <option value="date">Sort by date</option>
-              <option value="duration">Sort by duration</option>
-            </select>
-            <label className="media-bin-checkbox"><input type="checkbox" checked={showUnusedOnly} onChange={(event) => setShowUnusedOnly(event.target.checked)} /> unused only</label>
-          </div>
-          <div className="asset-grid media-bin-grid">
-        {filteredItems.map((asset) => (
-          <button
-            key={asset.key}
-            className={`asset-tile ${asset.exists ? "" : "missing"}`}
-            title={asset.path}
-            draggable
-            onDragStart={(event) => event.dataTransfer.setData("text/plain", asset.key)}
-            onDoubleClick={() => onDropAsset({ key: asset.key, path: asset.path, type: asset.type })}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              setContextMenu({ x: event.clientX, y: event.clientY, assetKey: asset.key });
-            }}
-          >
-            <span className="asset-thumb">
-              {asset.thumbnail ? <img src={window.ave.toFileUrl(asset.thumbnail)} alt="" /> : mediaIcon(asset, asset.category)}
-            </span>
-            <strong>{asset.key}</strong>
-            <span>{asset.name}</span>
-            <span>{asset.duration} / {asset.resolution}</span>
-            <span>{asset.ext || asset.type} / {asset.usedCount ? "used" : "unused"}</span>
-            {asset.smartTags.length > 0 ? (
-              <span className="asset-smart-tags">{asset.smartTags.slice(0, 3).map((tag) => <em key={tag}>{tag.replace(/_/g, " ")}</em>)}</span>
-            ) : asset.meta && <span>analyzed</span>}
-            <i className="asset-menu-hint"><MoreVertical size={14} /></i>
-          </button>
-        ))}
-            {!filteredItems.length && <div className="empty-media-bin">No media matches the current filters.</div>}
-          </div>
-        </section>
-      </div>
-      {menuAsset && contextMenu && (
-        <div className="media-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(event) => event.stopPropagation()}>
-          <button onClick={() => contextAction(menuAsset, "add")}><Plus size={14} /> Add to timeline</button>
-          <button onClick={() => contextAction(menuAsset, "preview")}><Eye size={14} /> Preview</button>
-          <button onClick={() => contextAction(menuAsset, "rename")}><Pencil size={14} /> Rename</button>
-          <button onClick={() => contextAction(menuAsset, "replace")}><RefreshCcw size={14} /> Replace media</button>
-          <button onClick={() => contextAction(menuAsset, "reveal")}><FolderOpen size={14} /> Reveal in folder</button>
-          <button onClick={() => contextAction(menuAsset, "details")}><CircleHelp size={14} /> View file details</button>
-          <button className="danger" onClick={() => contextAction(menuAsset, "remove")}><Trash2 size={14} /> Remove from project</button>
-        </div>
-      )}
-      {selectedPreview && (
-        <div className="media-preview-panel">
-          <div>
-            <strong>Preview: {selectedPreview.key}</strong>
-            <button onClick={() => setPreviewAssetKey("")}><X size={14} /></button>
-          </div>
-          {selectedPreview.type === "video" && selectedPreview.exists && <video src={window.ave.toFileUrl(selectedPreview.path)} controls />}
-          {selectedPreview.type === "image" && selectedPreview.exists && <img src={window.ave.toFileUrl(selectedPreview.path)} alt="" />}
-          {selectedPreview.type === "audio" && selectedPreview.exists && <audio src={window.ave.toFileUrl(selectedPreview.path)} controls />}
-          {(!selectedPreview.exists || selectedPreview.type === "unknown") && <p className="muted">{selectedPreview.path}</p>}
-        </div>
-      )}
-      {selectedDetails && (
-        <div className="inspector-list media-details-panel">
-          <h3>File Details</h3>
-          <div className="inspector-row">
-            <strong>{selectedDetails.key}</strong>
-            <span>{selectedDetails.name}</span>
-            <small>{selectedDetails.path}</small>
-            <small>type {selectedDetails.type} / ext {selectedDetails.ext || "-"} / {selectedDetails.exists ? "exists" : "missing"}</small>
-            <small>duration {selectedDetails.duration} / resolution {selectedDetails.resolution} / usage {selectedDetails.usedCount ? "used" : "unused"}</small>
-            {selectedDetails.smartTags.length > 0 && <small>smart tags: {selectedDetails.smartTags.join(", ")}</small>}
-            {selectedDetails.smartRecommendationText && <small>suggestions: {selectedDetails.smartRecommendationText}</small>}
-          </div>
-          {selectedDetails.meta && <pre className="mini-pre">{JSON.stringify(selectedDetails.meta, null, 2)}</pre>}
-          <button onClick={() => setDetailsAssetKey("")}>Close details</button>
-        </div>
-      )}
-      {assetReport && (
-        <div className="inspector-list">
-          <h3>Asset Intelligence</h3>
-          {analyzedAssets.map((item) => (
-            <div className="inspector-row" key={String(item.key)}>
-              <strong>{String(item.key)}</strong>
-              <span>{String(item.type)} | {String(item.duration ?? 0)}s | {formatResolution(item.resolution)}</span>
-              <small>motion {String(item.motionIntensity ?? "-")} | codec {String(item.codec ?? "-")}</small>
-              {Array.isArray(item.dominantColors) && (
-                <div className="swatches">{(item.dominantColors as string[]).map((color) => <i key={color} style={{ background: color }} />)}</div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

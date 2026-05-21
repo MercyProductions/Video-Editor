@@ -46,6 +46,16 @@ export type PreviewReviewNote = {
   createdAt: string;
 };
 
+export type TimelineMarker = {
+  id?: string;
+  time: number;
+  sceneId: string;
+  type: string;
+  label: string;
+  note?: string;
+  resolved?: boolean;
+};
+
 export type PauseEditPatch = {
   captionText?: string;
   start?: number;
@@ -104,6 +114,14 @@ export function parseProject(text: string): { data?: ProjectData; error?: string
 
 export function formatProject(data: ProjectData): string {
   return JSON.stringify(data, null, 2);
+}
+
+export function normalizeTimelineMarkers(value: unknown, fallbackType: string, preferNoteLabel = false): TimelineMarker[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const marker = normalizeTimelineMarker(item, fallbackType, preferNoteLabel);
+    return marker ? [marker] : [];
+  });
 }
 
 export function blankProject(): ProjectData {
@@ -289,6 +307,35 @@ function inferAssetKind(assetPath: string): "image" | "video" | "audio" | "unkno
   if (/\.(mp4|mov|mkv|avi|webm|flv|wmv|mpeg|mpg|m4v|ts|mts|m2ts)$/.test(clean)) return "video";
   if (/\.(wav|mp3|m4a|aac|flac|ogg)$/.test(clean)) return "audio";
   return "unknown";
+}
+
+function normalizeTimelineMarker(value: unknown, fallbackType: string, preferNoteLabel = false): TimelineMarker | null {
+  const marker = recordFromUnknown(value);
+  if (!marker) return null;
+  const numericTime = Number(marker.time);
+  const type = textFromUnknown(marker.type) || fallbackType;
+  const note = textFromUnknown(marker.note) || undefined;
+  const explicitLabel = textFromUnknown(marker.label);
+  const label = (preferNoteLabel ? note || explicitLabel : explicitLabel || note) || type;
+  return {
+    id: textFromUnknown(marker.id) || undefined,
+    time: Number.isFinite(numericTime) ? numericTime : 0,
+    sceneId: textFromUnknown(marker.sceneId) || "marker",
+    type,
+    label,
+    note,
+    resolved: typeof marker.resolved === "boolean" ? marker.resolved : undefined
+  };
+}
+
+function textFromUnknown(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const text = typeof value === "string" ? value : String(value);
+  return text.trim() ? text : null;
+}
+
+function recordFromUnknown(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
 export function suggestBetterTransitions(data: ProjectData): ProjectData {
