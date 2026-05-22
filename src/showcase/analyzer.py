@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from assets.intelligence import analyze_asset
+from showcase.ocr import analyze_screen_text
 from utils.media import media_duration, run_ffmpeg
 
 
@@ -74,7 +75,13 @@ def analyze_desktop_recording(
     clicks = _click_candidates(motion_samples, median_motion, stdev_motion)
     focus_events = _focus_events(motion_samples, text_samples, clicks, scene_changes, source_width, source_height)
     cursor_intent = _cursor_intent(motion_samples, clicks, idle_sections, sample_fps)
-    ui_importance = _ui_importance(focus_events, clicks, scene_changes, text_heavy, cursor_intent, source_width, source_height)
+    ocr_report = analyze_screen_text(
+        recording_path,
+        sample_times=_ocr_sample_times(duration, focus_events, scene_changes, text_heavy),
+        source_width=source_width,
+        source_height=source_height,
+    )
+    ui_importance = _ui_importance(focus_events, clicks, scene_changes, text_heavy, cursor_intent, source_width, source_height, ocr_report=ocr_report)
     mistake_removal = _mistake_removal(idle_sections, clicks, scene_changes, fast_motion, duration)
 
     report = _build_analysis_report(
@@ -98,6 +105,7 @@ def analyze_desktop_recording(
         focus_events=focus_events,
         cursor_intent=cursor_intent,
         ui_importance=ui_importance,
+        ocr_report=ocr_report,
         mistake_removal=mistake_removal,
         started=started,
     )
@@ -127,6 +135,7 @@ def _build_analysis_report(
     focus_events: list[dict[str, Any]],
     cursor_intent: dict[str, Any],
     ui_importance: dict[str, Any],
+    ocr_report: dict[str, Any],
     mistake_removal: dict[str, Any],
     started: float,
 ) -> dict[str, Any]:
@@ -165,6 +174,7 @@ def _build_analysis_report(
         "importantUiFocusAreas": focus_events[:24],
         "activeUiRegions": _active_regions(focus_events),
         "uiImportanceDetection": ui_importance,
+        "ocrDrivenUiDetection": ocr_report,
         "cursorIntent": cursor_intent,
         "textHeavyMoments": text_heavy,
         "deadTimeRemoval": {
@@ -420,6 +430,21 @@ def _focus_reason(is_click: bool, is_scene: bool, text_density: float) -> str:
     return "motion focus"
 
 
+def _ocr_sample_times(
+    duration: float,
+    focus_events: list[dict[str, Any]],
+    scene_changes: list[dict[str, Any]],
+    text_heavy: list[dict[str, Any]],
+) -> list[float]:
+    times: list[float] = []
+    times.extend(float(item.get("time", 0)) for item in focus_events[:8])
+    times.extend(float(item.get("time", 0)) for item in scene_changes[:5])
+    times.extend((float(item["start"]) + float(item["end"])) / 2 for item in text_heavy[:5])
+    if duration > 0:
+        times.extend([min(duration * 0.25, duration - 0.1), min(duration * 0.5, duration - 0.1), min(duration * 0.75, duration - 0.1)])
+    return [round(max(0.0, item), 3) for item in times]
+
+
 def _active_regions(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not events:
         return []
@@ -560,10 +585,15 @@ def _ui_importance(
     cursor_intent: dict[str, Any],
     source_width: int,
     source_height: int,
+    *,
+    ocr_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     active_regions = _active_regions(focus_events)
     clicked = [_region_from_point(item.get("x", 0.5), item.get("y", 0.5), source_width, source_height, "clicked button/control", item["time"], item.get("confidence", 0.7)) for item in clicks[:24]]
     hovered = [_region_from_point(item.get("x", 0.5), item.get("y", 0.5), source_width, source_height, "hovered control", item["start"], 0.6) for item in cursor_intent.get("slowHover", [])[:16]]
+    ocr_blocks = _ocr_text_blocks(ocr_report)
+    status_blocks = _ocr_status_blocks(ocr_report)
+    brand_blocks = _ocr_brand_blocks(ocr_report)
     return {
         "activeWindows": [_active_window_region(region, source_width, source_height) for region in active_regions[:6]],
         "clickedButtons": clicked,
@@ -571,9 +601,9 @@ def _ui_importance(
         "menusOpening": [{"time": item["time"], "confidence": item.get("confidence", 0.5), "reason": "sudden localized layout change"} for item in scene_changes[:10]],
         "modalDialogs": [_modal_candidate(event, source_width, source_height) for event in focus_events if 0.28 <= float(event.get("x", 0.5)) <= 0.72 and 0.2 <= float(event.get("y", 0.5)) <= 0.78][:10],
         "loadingStates": [],
-        "successErrorMessages": [{"start": item["start"], "end": item["end"], "reason": "text/status region changed"} for item in text_heavy[:10]],
-        "textBlocks": [{"start": item["start"], "end": item["end"], "duration": item["duration"], "importance": "readability protected"} for item in text_heavy],
-        "logoBrandAreas": _brand_area_candidates(focus_events, source_width, source_height),
+        "successErrorMessages": [{"start": item["start"], "end": item["end"], "reason": "text/status region changed"} for item in text_heavy[:10]] + status_blocks,
+        "textBlocks": [{"start": item["start"], "end": item["end"], "duration": item["duration"], "importance": "readability protected"} for item in text_heavy] + ocr_blocks,
+        "logoBrandAreas": _brand_area_candidates(focus_events, source_width, source_height) + brand_blocks,
     }
 
 
@@ -621,6 +651,70 @@ def _brand_area_candidates(events: list[dict[str, Any]], width: int, height: int
         if y <= 0.24 or x <= 0.22:
             candidates.append({"time": event["time"], "rect": _source_rect(x, y, width, height), "confidence": event.get("score", 0.35), "reason": "top or left UI branding area"})
     return candidates[:8]
+
+
+def _ocr_text_blocks(ocr_report: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not ocr_report or not ocr_report.get("available"):
+        return []
+    rows = []
+    for block in ocr_report.get("textBlocks", [])[:24]:
+        time_s = float(block.get("time", 0))
+        rows.append(
+            {
+                "start": round(max(0.0, time_s - 0.35), 3),
+                "end": round(time_s + 0.35, 3),
+                "duration": 0.7,
+                "importance": "ocr readability protected",
+                "text": block.get("text"),
+                "confidence": block.get("confidence", 0.5),
+                "rect": block.get("rect"),
+            }
+        )
+    return rows
+
+
+def _ocr_status_blocks(ocr_report: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not ocr_report or not ocr_report.get("available"):
+        return []
+    status_words = ("success", "error", "failed", "complete", "warning", "blocked", "done", "ready")
+    rows = []
+    for block in ocr_report.get("textBlocks", [])[:40]:
+        text = str(block.get("text", "")).lower()
+        if not any(word in text for word in status_words):
+            continue
+        time_s = float(block.get("time", 0))
+        rows.append(
+            {
+                "start": round(max(0.0, time_s - 0.5), 3),
+                "end": round(time_s + 0.5, 3),
+                "reason": "local OCR detected status text",
+                "text": block.get("text"),
+                "confidence": block.get("confidence", 0.5),
+                "rect": block.get("rect"),
+            }
+        )
+    return rows[:10]
+
+
+def _ocr_brand_blocks(ocr_report: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not ocr_report or not ocr_report.get("available"):
+        return []
+    rows = []
+    for block in ocr_report.get("textBlocks", [])[:20]:
+        rect = block.get("rect") or {}
+        x = int(rect.get("x", 0))
+        y = int(rect.get("y", 0))
+        if y <= 180 or x <= 220:
+            rows.append(
+                {
+                    "time": block.get("time", 0),
+                    "rect": rect,
+                    "confidence": block.get("confidence", 0.45),
+                    "reason": "local OCR found text in likely brand/navigation area",
+                    "text": block.get("text"),
+                }
+            )
+    return rows[:8]
 
 
 def _path_distance(group: list[dict[str, Any]]) -> float:
@@ -702,6 +796,15 @@ def _fallback_report(recording_path: Path, asset_report: dict[str, Any], duratio
             "successErrorMessages": [],
             "textBlocks": [],
             "logoBrandAreas": [],
+        },
+        "ocrDrivenUiDetection": {
+            "available": False,
+            "engine": "tesseract",
+            "reason": "Frame sampling failed before OCR could run.",
+            "sampledFrames": [],
+            "textBlocks": [],
+            "keywords": [],
+            "warnings": ["Showcase analysis fell back to center focus because frames could not be sampled."],
         },
         "cursorIntent": {"slowHover": [], "repeatedMovement": [], "actionPoints": [], "dragSequences": [], "idleCursor": []},
         "textHeavyMoments": [],

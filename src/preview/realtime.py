@@ -28,7 +28,8 @@ def generate_realtime_preview(
     local_time = max(frame_time - scene.start, 0)
     cache_key = _cache_key(project, scene, local_time, quality_mode, layer_mode)
     frame_path = cache_dir / f"{cache_key}.png"
-    if not frame_path.exists():
+    was_cached = frame_path.exists()
+    if not was_cached:
         _render_frame(project, scene, local_time, frame_path, quality_mode=quality_mode, layer_mode=layer_mode)
 
     report = {
@@ -39,15 +40,16 @@ def generate_realtime_preview(
         "sceneDuration": scene.duration,
         "localTime": round(local_time, 3),
         "frame": str(frame_path.resolve()),
-        "cached": frame_path.exists(),
         "qualityMode": quality_mode,
         "layerMode": layer_mode,
         "effects": _scene_effects(scene),
         "transitionPreview": scene.transition_out or {"type": "cut", "duration": 0},
+        "cacheKey": cache_key,
         "notes": [
             "Realtime preview renders a cached representative frame without exporting the full project.",
             "Scene/effect/transition metadata is included so the desktop scrubber can update instantly."
         ],
+        "cached": was_cached,
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     report_path = output_dir / "realtime_preview.json"
@@ -146,6 +148,7 @@ def _cache_key(project: ProjectConfig, scene: Scene, local_time: float, quality_
             "project": str(project.path),
             "mtime": project.path.stat().st_mtime if project.path.exists() else 0,
             "scene": scene.raw,
+            "assets": _scene_asset_signature(project, scene),
             "time": round(local_time, 2),
             "size": [project.settings.width, project.settings.height],
             "quality": quality_mode,
@@ -155,3 +158,35 @@ def _cache_key(project: ProjectConfig, scene: Scene, local_time: float, quality_
         default=str,
     )
     return hashlib.sha256(source.encode("utf-8")).hexdigest()[:24]
+
+
+def _scene_asset_signature(project: ProjectConfig, scene: Scene) -> list[dict[str, Any]]:
+    signatures: list[dict[str, Any]] = []
+    referenced = []
+    for layer in scene.layers:
+        asset_key = layer.raw.get("asset")
+        if asset_key:
+            referenced.append(str(asset_key))
+    for audio in project.audio:
+        referenced.append(audio.asset)
+
+    for asset_key in sorted(set(referenced)):
+        raw_path = project.assets.get(asset_key)
+        if not raw_path:
+            signatures.append({"asset": asset_key, "missing": True})
+            continue
+        path = Path(raw_path)
+        resolved = path if path.is_absolute() else project.root_dir / path
+        try:
+            stat = resolved.stat()
+            signatures.append(
+                {
+                    "asset": asset_key,
+                    "path": str(resolved.resolve()),
+                    "size": stat.st_size,
+                    "mtimeNs": stat.st_mtime_ns,
+                }
+            )
+        except OSError:
+            signatures.append({"asset": asset_key, "path": str(resolved), "missing": True})
+    return signatures

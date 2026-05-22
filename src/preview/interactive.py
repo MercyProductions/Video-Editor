@@ -283,6 +283,7 @@ def _cache_key(project: ProjectConfig, data: dict[str, Any], *, quality_mode: st
         {
             "project": str(project.path.resolve()),
             "mtime": project.path.stat().st_mtime if project.path.exists() else 0,
+            "assets": _asset_signature(project),
             "quality": quality_mode,
             "scope": scope,
             "sceneId": scene_id,
@@ -292,3 +293,23 @@ def _cache_key(project: ProjectConfig, data: dict[str, Any], *, quality_mode: st
         default=str,
     )
     return hashlib.sha256(source.encode("utf-8")).hexdigest()[:24]
+
+
+def _asset_signature(project: ProjectConfig) -> list[dict[str, Any]]:
+    signatures: list[dict[str, Any]] = []
+    for asset_key, raw_path in sorted(project.assets.items()):
+        path = Path(raw_path)
+        resolved = path if path.is_absolute() else project.root_dir / path
+        try:
+            stat = resolved.stat()
+            signatures.append(
+                {
+                    "asset": asset_key,
+                    "path": str(resolved.resolve()),
+                    "size": stat.st_size,
+                    "mtimeNs": stat.st_mtime_ns,
+                }
+            )
+        except OSError:
+            signatures.append({"asset": asset_key, "path": str(resolved), "missing": True})
+    return signatures

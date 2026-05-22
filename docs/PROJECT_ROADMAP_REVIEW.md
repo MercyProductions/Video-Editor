@@ -12,14 +12,16 @@ The remaining work is not "make it work at all." The remaining work is to make i
 
 ## Current Verified State
 
-Fresh review commands run on 2026-05-21:
+Fresh review commands run on 2026-05-21, including the latest Phase 1 renderer scene-planning slice:
 
 ```powershell
+python -m compileall -q src render.py
+python render.py validate examples\project.json
+python render.py examples\project.json -o output\phase1_renderer_scene_extract_smoke.mp4 --quality preview --cache
+python render.py examples\project.json -o output\phase1_renderer_scene_uncached_smoke.mp4 --quality preview
 python -m unittest discover -s tests
-python render.py architecture-audit -o output\full_project_review_architecture_audit.json
-python render.py release-check -o output\full_project_review_release_check.json
-cd desktop-app
-npm run verify
+python render.py architecture-audit -o output\phase1_renderer_scene_architecture_audit.json
+python scripts\verify_local.py
 ```
 
 Results:
@@ -31,19 +33,28 @@ Results:
 - Final render: 10.0s expected, 10.0s actual, 0.0s delta.
 - Desktop verify: typecheck, unit tests, Electron build, and Vite build passed.
 - Dependency summary: ready, 0 warnings.
-- Architecture audit: 150 Python files, 59 Python packages, 33 docs, 3 plugins, 1 warning.
-- Architecture warning: 19 large functions still need future refactoring attention.
+- Architecture audit: 156 Python files, 59 Python packages, 33 docs, 3 plugins, 1 warning.
+- Architecture warning: 12 large functions still need future refactoring attention.
 
 Important current file sizes:
 
-- `desktop-app/src/App.tsx`: 10,997 lines.
-- `src/main.py`: 3,082 lines.
-- `desktop-app/electron/main.ts`: 2,270 lines.
-- `src/renderer/renderer.py`: 770 lines.
-- `src/finalization/release.py`: 187 lines.
-- `src/quality/checker.py`: 151 lines.
-- `desktop-app/electron/history.ts`: 104 lines.
-- `desktop-app/electron/media.ts`: 39 lines.
+- `desktop-app/src/App.tsx`: 11,446 lines.
+- `src/main.py`: 1,970 lines.
+- `desktop-app/electron/main.ts`: 1,884 lines.
+- `src/cli_parser.py`: 1,170 lines.
+- `src/renderer/renderer.py`: 445 lines.
+- `desktop-app/electron/renderQueue.ts`: 426 lines.
+- `desktop-app/electron/projectStore.ts`: 240 lines.
+- `src/renderer/scene.py`: 278 lines.
+- `src/workflow/cli.py`: 205 lines.
+- `src/feedback/cli.py`: 157 lines.
+- `src/renderer/audio.py`: 146 lines.
+- `src/renderer/mux.py`: 133 lines.
+- `src/finalization/release.py`: 217 lines.
+- `src/quality/checker.py`: 183 lines.
+- `desktop-app/electron/history.ts`: 110 lines.
+- `desktop-app/electron/media.ts`: 45 lines.
+- `desktop-app/electron/engine.ts`: 33 lines.
 
 ## What Is Already Done
 
@@ -78,10 +89,11 @@ Important current file sizes:
 
 ### Architecture
 
-- Continue splitting `desktop-app/src/App.tsx`; it is still the largest risk point at 10,997 lines.
-- Continue splitting `desktop-app/electron/main.ts`; render queue, engine commands, settings, recovery, and project I/O still share one IPC file.
-- Split `src/main.py`, especially `build_parser`, which is 1,024 lines by itself.
-- Split `src/renderer/renderer.py` around scene rendering, audio rendering, filter graph construction, and muxing.
+- Continue splitting `desktop-app/src/App.tsx`; it is still the largest risk point at 11,446 lines.
+- Continue splitting `desktop-app/electron/main.ts`; the remaining IPC orchestration, window lifecycle, panel management, and health/diagnostic glue still need smaller ownership boundaries.
+- Continue slimming `src/main.py`; it is no longer in the architecture-audit hotspot list, but it is still the central top-level CLI surface.
+- Keep `src/cli_parser.py` grouped by command family as new commands are added so parser construction does not become another oversized control point.
+- Continue renderer cleanup around transition composition and golden render coverage; `src/renderer/renderer.py` is no longer in the architecture-audit hotspot list.
 - Move pure helpers into typed/tested modules before moving behavior-heavy code.
 
 ### Tests
@@ -187,6 +199,55 @@ Acceptance:
 - `App.tsx`, Electron `main.ts`, and `src/main.py` trend down in size.
 - `python scripts\verify_local.py` still passes after each extraction.
 - No IPC channel names or CLI command names change unless intentionally documented.
+
+Phase 1 progress:
+
+- Extracted Python engine command execution into `desktop-app/electron/engine.ts`.
+- Extracted Electron render queue state, render process spawning, progress parsing, cancellation, retry, priority, delivery-package creation, queue serialization, and default render output naming into `desktop-app/electron/renderQueue.ts`.
+- Kept renderer-facing IPC channel names unchanged: `render:start`, `render:queue`, `render:pause`, `render:resume`, `render:cancel`, `render:retry`, and `render:priority`.
+- Updated project health checks to ask the render queue controller for failed render count instead of reading queue internals.
+- Reduced `desktop-app/electron/main.ts` from 2,270 lines to 1,914 lines.
+- Current verification after this slice: desktop `npm run verify` passes.
+- Extracted recent projects, project file read/write, temporary project paths, settings normalization/persistence, session crash markers, and recovery snapshot storage into `desktop-app/electron/projectStore.ts`.
+- Kept project, recent, settings, recovery, and render IPC channel names stable while moving storage behavior behind the project store.
+- Reduced `desktop-app/electron/main.ts` further from 1,914 lines to the current 1,884 lines after later wiring.
+- Current verification after this slice: desktop `npm run verify` passes.
+- Extracted CLI command registration and parser construction from `src/main.py` into `src/cli_parser.py`.
+- Kept `COMMANDS` and `build_parser()` behavior stable, including the legacy default-to-render path for unrecognized first positional input.
+- Reduced `src/main.py` from 3,082 lines to 2,202 lines before the workflow/feedback CLI extraction.
+- Initial parser extraction moved the CLI setup hotspot into `src/cli_parser.py`; the next pass split that hotspot by command family.
+- Current verification after this slice: Python compile, CLI help, project validation, and backend smoke tests pass.
+- Split `src/cli_parser.py::build_parser` into focused command-family registration helpers while keeping the parser output and command names stable.
+- Architecture audit large-function count dropped from 19 to 18; `build_parser()` is no longer one of the reported hotspots.
+- Current verification after this slice: Python compile, CLI help, project validation, nested `template create`, backend smoke tests, and architecture audit pass.
+- Replaced the long `src/main.py::main` command `if` chain with a `_COMMAND_HANDLERS` dispatch table.
+- Verified the dispatch table matches `COMMANDS`: 84 handlers, 84 parser commands, no missing commands, no extra handlers.
+- Confirmed CLI help output is unchanged compared with the parser-split baseline.
+- Architecture audit large-function count dropped from 18 to 17; `main()` is no longer one of the reported hotspots.
+- Remaining `src/main.py` audit hotspots are now `_cmd_workflow` at 101 lines and `_cmd_feedback` at 93 lines.
+- Current verification after this slice: Python compile, CLI help diff, handler coverage check, project validation, nested `template create`, backend smoke tests, architecture audit, and `python scripts\verify_local.py` all pass.
+- Extracted workflow subcommand routing from `src/main.py` into `src/workflow/cli.py`.
+- Extracted feedback subcommand routing from `src/main.py` into `src/feedback/cli.py`.
+- Kept the top-level `workflow` and `feedback` command names stable while replacing the oversized handlers with tiny delegating wrappers.
+- Verified the moved command paths with `workflow pipeline-list` and `feedback analyze examples\project.json`.
+- Confirmed CLI help output is unchanged compared with the dispatch-table baseline.
+- Reduced `src/main.py` from 2,202 lines to 1,970 lines.
+- Architecture audit large-function count dropped from 17 to 15; `src/main.py` no longer appears in the reported hotspots.
+- Current verification after this slice: Python compile, CLI help diff, handler coverage check, moved workflow/feedback command smoke checks, project validation, backend smoke tests, architecture audit, and `python scripts\verify_local.py` all pass.
+- Extracted audio mix rendering from `src/renderer/renderer.py` into `src/renderer/audio.py`.
+- Extracted output mux/container branching from `src/renderer/renderer.py` into `src/renderer/mux.py`.
+- Kept `VideoRenderer._render_audio()` and `VideoRenderer._mux()` as small delegating methods, preserving the render flow and output behavior.
+- Verified the moved renderer paths with a cached preview render of `examples/project.json` and a template creation smoke.
+- Reduced `src/renderer/renderer.py` from 826 lines to 624 lines.
+- Architecture audit large-function count dropped from 15 to 13; `_render_audio()` and `_mux()` are no longer reported hotspots.
+- Remaining renderer audit hotspot is `VideoRenderer._render_scene()` at 165 lines.
+- Current verification after this slice: Python compile, project validation, preview render smoke, nested `template create`, backend smoke tests, architecture audit, and `python scripts\verify_local.py` all pass.
+- Extracted scene input planning, scene filter graph composition, media overlay planning, caption filters, and post-scene filters from `src/renderer/renderer.py` into `src/renderer/scene.py`.
+- Kept `VideoRenderer._render_scene()` responsible for cache lookup, FFmpeg execution, GPU fallback, and scene cache writes.
+- Verified the moved scene planner with both cached and uncached preview renders of `examples/project.json`.
+- Reduced `src/renderer/renderer.py` from 624 lines to 445 lines.
+- Architecture audit large-function count dropped from 13 to 12; `src/renderer/renderer.py` no longer appears in the reported hotspots.
+- Current verification after this slice: Python compile, project validation, cached and uncached preview render smokes, backend smoke tests, architecture audit, and `python scripts\verify_local.py` all pass.
 
 ## Phase 2: Prove The Desktop Creator Workflow
 
@@ -364,7 +425,7 @@ Acceptance:
 - Checkpoint the current verified baseline.
 - Extract Electron render queue and engine command modules.
 - Add tests for extracted Electron pure helpers.
-- Start splitting `src/main.py` parser setup by command group.
+- Continue splitting large command families and renderer internals now that `src/main.py` is off the audit hotspot list.
 
 ### Week 2
 
@@ -378,7 +439,7 @@ Acceptance:
 - Add FFprobe duration assertions for golden fixtures.
 - Harden media relink and missing asset repair flow.
 - Add generator validity tests for project-producing commands.
-- Continue reducing `App.tsx` and `src/main.py`.
+- Continue reducing `App.tsx`, Electron IPC orchestration, and renderer internals.
 
 ### Week 4
 

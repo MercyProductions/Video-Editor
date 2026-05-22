@@ -2,8 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import path from "node:path";
-import { ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import crypto from "node:crypto";
+import { runEngineCommand } from "./engine";
 import {
   allMediaImportExtensions,
   audioImportExtensions,
@@ -20,42 +20,14 @@ import {
   readHistory,
   recordHistorySnapshot
 } from "./history";
-
-type RecentProject = {
-  path: string;
-  name: string;
-  openedAt: string;
-};
-
-type EngineResult = {
-  ok: boolean;
-  stdout: string;
-  stderr: string;
-  exitCode: number | null;
-};
-
-type AppSettings = {
-  theme: "aegis" | "graphite" | "midnight" | "slate" | "high_contrast" | "light";
-  autosave: boolean;
-  autosaveIntervalSeconds: number;
-  previewTimeSeconds: number;
-  keyboardShortcuts: boolean;
-  onboardingComplete: boolean;
-  defaultWorkflow: "quick" | "guided" | "advanced";
-  defaultPlatform: string;
-  defaultStyle: string;
-  defaultExportFolder?: string | null;
-  beginnerTips: boolean;
-  workspacePreset: "beginner" | "ai" | "editing" | "captions" | "export" | "minimal";
-  panelDock: "standard" | "inspector_left" | "media_right" | "preview_focus";
-  uiScale: "small" | "medium" | "large" | "auto";
-  accentColor: string;
-  leftRailWidth: number;
-  rightRailWidth: number;
-  leftRailOpen: boolean;
-  rightRailOpen: boolean;
-  monitorPositions?: Record<string, { x?: number; y?: number; width: number; height: number }>;
-};
+import {
+  defaultRenderOutputPath,
+  RenderPayload,
+  RenderQueueController,
+  slugify
+} from "./renderQueue";
+import { ProjectStore } from "./projectStore";
+import type { AppSettings, RecoveryPoint } from "./projectStore";
 
 type TemplatePack = {
   key: string;
@@ -68,24 +40,6 @@ type TemplatePack = {
   exportPreset: string;
   transitionStyle: string;
   installState: string;
-};
-
-type RenderPayload = {
-  text: string;
-  projectPath?: string | null;
-  outputPath?: string | null;
-  quality: "preview" | "final";
-  preset?: string | null;
-  format?: "mp4" | "mov" | "mkv" | "webm" | "gif" | "image_sequence" | null;
-  generatePlaceholders?: boolean;
-  cache?: boolean;
-  resume?: boolean;
-  gpu?: boolean;
-  label?: string;
-  priority?: number;
-  createDeliveryPackage?: boolean;
-  packagePlatforms?: string[];
-  packageTitle?: string | null;
 };
 
 type BeginnerAutoTemplatePayload = {
@@ -193,44 +147,10 @@ type AdaptiveWorkflowMemory = {
   friction: Record<string, unknown>;
 };
 
-type QueuedRenderJob = {
-  runId: string;
-  label: string;
-  input: string;
-  outputPath: string;
-  args: string[];
-  payload: RenderPayload;
-  status: "queued" | "running" | "completed" | "failed" | "canceled";
-  priority: number;
-  logs: string[];
-  exitCode?: number | null;
-  child?: ChildProcessWithoutNullStreams;
-  startedAt?: number;
-  currentScene?: string;
-  progressPercent?: number;
-  estimatedRemainingSeconds?: number;
-  packagePath?: string;
-  packageStatus?: "pending" | "running" | "completed" | "failed";
-  packageError?: string;
-  sceneCount?: number;
-  completedScenes?: number;
-};
-
-type RecoveryPoint = {
-  type: string;
-  path: string;
-  timestamp?: string;
-  size?: number;
-  projectId?: string;
-};
-
 const engineRoot = app.isPackaged ? path.join(process.resourcesPath, "engine") : path.resolve(__dirname, "..", "..");
 const renderPy = path.join(engineRoot, "render.py");
 const pythonBinary = process.env.PYTHON || "python";
 const userDataDir = app.getPath("userData");
-const recentPath = path.join(userDataDir, "recent-projects.json");
-const settingsPath = path.join(userDataDir, "settings.json");
-const sessionStatePath = path.join(userDataDir, "session-state.json");
 const frictionLogPath = path.join(userDataDir, "friction-events.jsonl");
 const adaptiveMemoryPath = path.join(userDataDir, "adaptive-workflow-memory.json");
 const generatedDir = app.isPackaged ? path.join(userDataDir, "projects") : path.join(engineRoot, "examples", "generated");
@@ -246,9 +166,26 @@ const legacyOutputRoots = [
 const tempDir = path.join(app.getPath("temp"), "automatic-video-editor-desktop");
 let mainWindow: BrowserWindow | null = null;
 let splashWindow: BrowserWindow | null = null;
-let renderQueue: QueuedRenderJob[] = [];
-let activeRender: QueuedRenderJob | null = null;
-let renderQueuePaused = false;
+const projectStore = new ProjectStore({
+  userDataDir,
+  generatedDir,
+  tempDir,
+  outputRoot,
+  legacyOutputRoots
+});
+const renderQueue = new RenderQueueController({
+  pythonBinary,
+  renderPy,
+  engineRoot,
+  outputRoot,
+  exportsRoot,
+  writeTempProject: (text, prefix) => projectStore.writeTempProject(text, prefix),
+  addRecent: (filePath) => projectStore.addRecent(filePath),
+  runEngine,
+  send: (channel, payload) => {
+    mainWindow?.webContents.send(channel, payload);
+  }
+});
 let startupRecoveryState: { crashed: boolean; lastSavedAt?: string; latestRecovery?: RecoveryPoint | null } = {
   crashed: false,
   latestRecovery: null
@@ -301,8 +238,8 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  startupRecoveryState = await readStartupRecoveryState();
-  writeSessionState(true);
+  startupRecoveryState = await projectStore.readStartupRecoveryState();
+  projectStore.writeSessionState(true);
   registerIpc();
   createSplashWindow();
   createWindow();
@@ -316,7 +253,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
-  writeSessionState(false);
+  projectStore.writeSessionState(false);
 });
 
 function registerIpc() {
@@ -342,7 +279,7 @@ function registerIpc() {
     };
   });
 
-  ipcMain.handle("recent:list", async () => readRecent());
+  ipcMain.handle("recent:list", async () => projectStore.readRecent());
 
   ipcMain.handle("project:open", async () => {
     const result = await dialog.showOpenDialog({
@@ -351,17 +288,14 @@ function registerIpc() {
       properties: ["openFile"]
     });
     if (result.canceled || !result.filePaths[0]) return null;
-    return readProjectFile(result.filePaths[0]);
+    return projectStore.readProjectFile(result.filePaths[0]);
   });
 
-  ipcMain.handle("project:read", async (_event, filePath: string) => readProjectFile(filePath));
+  ipcMain.handle("project:read", async (_event, filePath: string) => projectStore.readProjectFile(filePath));
 
   ipcMain.handle("project:save", async (_event, payload: { path?: string | null; text: string }) => {
     const targetPath = payload.path || path.join(generatedDir, "desktop_project.json");
-    await fs.mkdir(path.dirname(targetPath), { recursive: true });
-    await fs.writeFile(targetPath, payload.text, "utf-8");
-    await addRecent(targetPath);
-    return readProjectFile(targetPath);
+    return projectStore.writeProjectFile(targetPath, payload.text);
   });
 
   ipcMain.handle("project:saveAs", async (_event, payload: { text: string }) => {
@@ -371,26 +305,24 @@ function registerIpc() {
       filters: [{ name: "JSON Project", extensions: ["json"] }]
     });
     if (result.canceled || !result.filePath) return null;
-    await fs.writeFile(result.filePath, payload.text, "utf-8");
-    await addRecent(result.filePath);
-    return readProjectFile(result.filePath);
+    return projectStore.writeProjectFile(result.filePath, payload.text);
   });
 
   ipcMain.handle("engine:validate", async (_event, payload: { text: string }) => {
-    const input = await writeTempProject(payload.text, "validate");
+    const input = await projectStore.writeTempProject(payload.text, "validate");
     return runEngine(["validate", input]);
   });
 
   ipcMain.handle("engine:repair", async (_event, payload: { text: string }) => {
-    const input = await writeTempProject(payload.text, "repair");
-    const output = tempProjectPath("repaired");
+    const input = await projectStore.writeTempProject(payload.text, "repair");
+    const output = projectStore.tempProjectPath("repaired");
     const result = await runEngine(["repair", input, "-o", output]);
     const text = result.ok ? await fs.readFile(output, "utf-8") : undefined;
     return { ...result, text, path: output };
   });
 
   ipcMain.handle("engine:aiGenerate", async (_event, payload: { prompt: string }) => {
-    const output = tempProjectPath("ai-generated");
+    const output = projectStore.tempProjectPath("ai-generated");
     const result = await runEngine(["ai-generate", payload.prompt, "-o", output]);
     const text = result.ok ? await fs.readFile(output, "utf-8") : undefined;
     return { ...result, text, path: output };
@@ -458,7 +390,7 @@ function registerIpc() {
     const data = result.ok ? await readJsonIfExists(summaryPath) : undefined;
     const review = result.ok ? await readJsonIfExists(reviewPath) : undefined;
     const reasoning = result.ok && fsSync.existsSync(reasoningPath) ? await fs.readFile(reasoningPath, "utf-8") : undefined;
-    if (result.ok && fsSync.existsSync(projectPath)) await addRecent(projectPath);
+    if (result.ok && fsSync.existsSync(projectPath)) await projectStore.addRecent(projectPath);
     return { ...result, text, path: projectPath, data: data ? { ...data, review, reasoning } : data };
   });
 
@@ -531,7 +463,7 @@ function registerIpc() {
     if (result.ok && text && data) {
       await moveBeginnerRenderToVideos(data, text, projectPath, payload);
     }
-    if (result.ok && fsSync.existsSync(projectPath)) await addRecent(projectPath);
+    if (result.ok && fsSync.existsSync(projectPath)) await projectStore.addRecent(projectPath);
     return { ...result, text, path: projectPath, data };
   });
 
@@ -545,24 +477,24 @@ function registerIpc() {
   });
 
   ipcMain.handle("engine:template", async (_event, payload: { template: string }) => {
-    const output = tempProjectPath(`template-${payload.template}`);
+    const output = projectStore.tempProjectPath(`template-${payload.template}`);
     const result = await runEngine(["template", "create", payload.template, "-o", output]);
     const text = result.ok ? await fs.readFile(output, "utf-8") : undefined;
     return { ...result, text, path: output };
   });
 
   ipcMain.handle("engine:addCaptions", async (_event, payload: { text: string; transcriptPath: string; mode: string; style: string }) => {
-    const input = await writeTempProject(payload.text, "captions-input");
-    const output = tempProjectPath("captions-output");
+    const input = await projectStore.writeTempProject(payload.text, "captions-input");
+    const output = projectStore.tempProjectPath("captions-output");
     const result = await runEngine(["captions", input, payload.transcriptPath, "--mode", payload.mode, "--style", payload.style, "-o", output]);
     const text = result.ok ? await fs.readFile(output, "utf-8") : undefined;
     return { ...result, text, path: output };
   });
 
   ipcMain.handle("engine:director", async (_event, payload: { text: string; projectPath?: string | null; goal: string; preserve?: string[] }) => {
-    const input = payload.projectPath || await writeTempProject(payload.text, "director-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "director-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
-    const output = tempProjectPath("director-output");
+    const output = projectStore.tempProjectPath("director-output");
     const args = ["director", input, payload.goal, "-o", output];
     if (payload.preserve?.length) args.push("--preserve", ...payload.preserve);
     const result = await runEngine(args);
@@ -573,7 +505,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("engine:storyboard", async (_event, payload: { text: string; projectPath?: string | null }) => {
-    const input = payload.projectPath || await writeTempProject(payload.text, "storyboard-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "storyboard-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
     const outputDir = path.join(tempDir, `storyboard-${Date.now()}`);
     const result = await runEngine(["storyboard", input, "-o", outputDir]);
@@ -583,7 +515,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("engine:assetAnalyze", async (_event, payload: { text: string; projectPath?: string | null }) => {
-    const input = payload.projectPath || await writeTempProject(payload.text, "asset-analysis-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "asset-analysis-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
     const output = path.join(tempDir, `asset-intelligence-${Date.now()}.json`);
     const result = await runEngine(["asset-analyze", input, "-o", output]);
@@ -592,9 +524,9 @@ function registerIpc() {
   });
 
   ipcMain.handle("engine:resolveBroll", async (_event, payload: { text: string; projectPath?: string | null }) => {
-    const input = payload.projectPath || await writeTempProject(payload.text, "broll-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "broll-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
-    const output = tempProjectPath("broll-output");
+    const output = projectStore.tempProjectPath("broll-output");
     const result = await runEngine(["resolve-broll", input, "-o", output]);
     const text = result.ok ? await fs.readFile(output, "utf-8") : undefined;
     return { ...result, text, path: output };
@@ -655,13 +587,13 @@ function registerIpc() {
   ipcMain.handle("history:rollback", async (_event, payload: { projectPath: string; versionId: string }) => {
     const result = await runEngine(["history", "rollback", payload.projectPath, payload.versionId]);
     if (!result.ok) throw new Error(result.stderr || result.stdout || "Rollback failed");
-    return readProjectFile(payload.projectPath);
+    return projectStore.readProjectFile(payload.projectPath);
   });
 
   ipcMain.handle("history:duplicate", async (_event, payload: { projectPath: string; versionId: string }) => {
     const targetPath = await duplicateHistoryVersion(payload.projectPath, payload.versionId, generatedDir);
-    await addRecent(targetPath);
-    return readProjectFile(targetPath);
+    await projectStore.addRecent(targetPath);
+    return projectStore.readProjectFile(targetPath);
   });
 
   ipcMain.handle("history:compare", async (_event, payload: { projectPath: string; versionId: string }) => {
@@ -669,8 +601,8 @@ function registerIpc() {
   });
 
   ipcMain.handle("package:export", async (_event, payload: { text: string; projectPath?: string | null }) => {
-    const input = await writeTempProject(payload.text, "package-input");
-    if (payload.projectPath) await addRecent(payload.projectPath);
+    const input = await projectStore.writeTempProject(payload.text, "package-input");
+    if (payload.projectPath) await projectStore.addRecent(payload.projectPath);
     const result = await dialog.showSaveDialog({
       title: "Export project package",
       defaultPath: path.join(outputRoot, "project.avepkg.zip"),
@@ -692,7 +624,7 @@ function registerIpc() {
     const target = path.join(generatedDir, path.basename(result.filePaths[0], ".zip"));
     const engineResult = await runEngine(["package", "open", result.filePaths[0], "-o", target]);
     if (!engineResult.ok) throw new Error(engineResult.stderr || engineResult.stdout || "Package open failed");
-    return readProjectFile(path.join(target, "project.json"));
+    return projectStore.readProjectFile(path.join(target, "project.json"));
   });
 
   ipcMain.handle("plugin:list", async () => {
@@ -707,7 +639,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("engine:realtimePreview", async (_event, payload: { text: string; projectPath?: string | null; time?: number; sceneId?: string | null; qualityMode?: string; layerMode?: string }) => {
-    const input = payload.projectPath || await writeTempProject(payload.text, "realtime-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "realtime-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
     const outputDir = path.join(tempDir, "realtime-preview");
     const args = ["realtime-preview", input, "-o", outputDir];
@@ -722,7 +654,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("engine:interactivePreview", async (_event, payload: { text: string; projectPath?: string | null; qualityMode?: string; scope?: string; sceneId?: string | null }) => {
-    const input = payload.projectPath || await writeTempProject(payload.text, "interactive-preview-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "interactive-preview-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
     const outputDir = path.join(tempDir, "interactive-preview");
     const args = [
@@ -743,7 +675,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("engine:qualityCheck", async (_event, payload: { text: string; projectPath?: string | null }) => {
-    const input = payload.projectPath || await writeTempProject(payload.text, "quality-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "quality-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
     const output = path.join(tempDir, `quality-${Date.now()}.json`);
     const result = await runEngine(["quality-check", input, "-o", output]);
@@ -752,7 +684,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("engine:finalPreflight", async (_event, payload: { text: string; projectPath?: string | null; previewVideo?: string | null; format?: string }) => {
-    const input = payload.projectPath || await writeTempProject(payload.text, "final-preflight-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "final-preflight-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
     const output = path.join(tempDir, `final-preflight-${Date.now()}.json`);
     const args = ["final-preflight", "check", input, "-o", output, "--format", payload.format || "mp4"];
@@ -763,9 +695,9 @@ function registerIpc() {
   });
 
   ipcMain.handle("engine:repairPreflight", async (_event, payload: { text: string; projectPath?: string | null; previewVideo?: string | null; format?: string; mode?: string; issueId?: string | null }) => {
-    const input = payload.projectPath || await writeTempProject(payload.text, "final-preflight-repair-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "final-preflight-repair-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
-    const output = tempProjectPath("final-preflight-repaired");
+    const output = projectStore.tempProjectPath("final-preflight-repaired");
     const args = ["final-preflight", "repair", input, "-o", output, "--format", payload.format || "mp4", "--mode", payload.mode || "all"];
     if (payload.previewVideo) args.push("--preview-video", payload.previewVideo);
     if (payload.issueId) args.push("--issue-id", payload.issueId);
@@ -776,7 +708,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("engine:manifest", async (_event, payload: { text: string; projectPath?: string | null }) => {
-    const input = payload.projectPath || await writeTempProject(payload.text, "manifest-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "manifest-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
     const output = path.join(tempDir, `project-manifest-${Date.now()}.json`);
     const result = await runEngine(["manifest", input, "-o", output]);
@@ -785,7 +717,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("engine:reformat", async (_event, payload: { text: string; projectPath?: string | null; targets: string[] }) => {
-    const input = payload.projectPath || await writeTempProject(payload.text, "reformat-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "reformat-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
     const outputDir = path.join(generatedDir, "desktop_social_reformats");
     const result = await runEngine(["reformat", input, "--targets", ...(payload.targets.length ? payload.targets : ["all"]), "-o", outputDir]);
@@ -793,7 +725,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("engine:repurpose", async (_event, payload: { text: string; projectPath?: string | null; targets?: string[] | null; hooks?: string[] | null; ctas?: string[] | null; reuseStyle?: boolean | null; render?: boolean | null; package?: boolean | null; quality?: "preview" | "final"; maxVariants?: number | null }) => {
-    const input = payload.projectPath || await writeTempProject(payload.text, "repurpose-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "repurpose-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
     const outputDir = path.join(generatedDir, `repurposed-${Date.now()}`);
     const args = ["repurpose", input, "--platforms", ...((payload.targets?.length ? payload.targets : ["all"])), "-o", outputDir, "--quality", payload.quality || "preview"];
@@ -810,7 +742,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("engine:postPackage", async (_event, payload: { text: string; projectPath?: string | null; videoPath: string; targets: string[]; title?: string | null }) => {
-    const input = payload.projectPath || await writeTempProject(payload.text, "post-package-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "post-package-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
     const outputDir = path.join(exportsRoot, `posting-package-${Date.now()}`);
     const args = ["post-package", input, payload.videoPath, "--platforms", ...(payload.targets.length ? payload.targets : ["all"]), "-o", outputDir];
@@ -822,7 +754,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("postExport:review", async (_event, payload: { text: string; projectPath?: string | null; videoPath: string; packageDir?: string | null }) => {
-    const input = payload.projectPath || await writeTempProject(payload.text, "post-export-review-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "post-export-review-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
     const output = path.join(tempDir, `post-export-review-${Date.now()}.json`);
     const args = ["post-export", "review", input, payload.videoPath, "-o", output];
@@ -833,7 +765,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("postExport:reexport", async (_event, payload: { text: string; projectPath?: string | null; preset?: string | null; mode?: string | null; format?: string | null; captions?: string | null; thumbnail?: string | null }) => {
-    const input = payload.projectPath || await writeTempProject(payload.text, "post-export-reexport-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "post-export-reexport-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
     const outputDir = path.join(generatedDir, `post-export-reexport-${Date.now()}`);
     const args = ["post-export", "reexport", input, "-o", outputDir, "--mode", payload.mode || "custom", "--format", payload.format || "mp4", "--captions", payload.captions || "keep"];
@@ -847,7 +779,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("postExport:template", async (_event, payload: { text: string; projectPath?: string | null; videoPath?: string | null; name: string; note?: string | null }) => {
-    const input = payload.projectPath || await writeTempProject(payload.text, "post-export-template-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "post-export-template-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
     const output = path.join(engineRoot, "templates", "reusable", `${slugify(payload.name || "reusable-template")}.reuse-template.json`);
     const args = ["post-export", "template", input, "--name", payload.name || "Reusable Template", "-o", output];
@@ -859,7 +791,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("postExport:variants", async (_event, payload: { text: string; projectPath?: string | null; variants?: string[] | null; hook?: string | null; cta?: string | null }) => {
-    const input = payload.projectPath || await writeTempProject(payload.text, "post-export-variants-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "post-export-variants-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
     const outputDir = path.join(generatedDir, `post-export-variants-${Date.now()}`);
     const args = ["post-export", "variants", input, "-o", outputDir];
@@ -872,7 +804,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("postExport:note", async (_event, payload: { text: string; projectPath?: string | null; videoPath?: string | null; profile?: string | null; tags?: string[] | null; note?: string | null }) => {
-    const input = payload.projectPath || await writeTempProject(payload.text, "post-export-note-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "post-export-note-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
     const args = ["post-export", "note", input, "--profile", payload.profile || "Default Creator"];
     if (payload.videoPath) args.push("--video", payload.videoPath);
@@ -901,9 +833,9 @@ function registerIpc() {
       properties: ["openFile"]
     });
     if (pick.canceled || !pick.filePaths[0]) return { ok: false, stdout: "Brand kit apply canceled.", stderr: "", exitCode: 0 };
-    const input = payload.projectPath || await writeTempProject(payload.text, "brand-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "brand-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
-    const output = tempProjectPath("brand-output");
+    const output = projectStore.tempProjectPath("brand-output");
     const result = await runEngine(["brand", "apply", input, pick.filePaths[0], "-o", output]);
     const text = result.ok ? await fs.readFile(output, "utf-8") : undefined;
     return { ...result, text, path: output };
@@ -933,15 +865,13 @@ function registerIpc() {
     return { ...engineResult, data: { packagePath: result.filePaths[0] } };
   });
 
-  ipcMain.handle("settings:get", async () => readSettings());
+  ipcMain.handle("settings:get", async () => projectStore.readSettings());
 
   ipcMain.handle("settings:pickExportFolder", async () => pickFolder("Choose default export folder"));
 
   ipcMain.handle("settings:save", async (_event, settings: unknown) => {
     const incoming = settings && typeof settings === "object" ? settings as Partial<AppSettings> : {};
-    const next = normalizeSettings(incoming);
-    await fs.mkdir(userDataDir, { recursive: true });
-    await fs.writeFile(settingsPath, JSON.stringify(next, null, 2), "utf-8");
+    const next = await projectStore.saveSettings(incoming);
     const keys = settings && typeof settings === "object" ? Object.keys(settings as Record<string, unknown>) : [];
     await logFrictionEvent({ event: "settings_changed", label: "settings", keys });
     return next;
@@ -957,32 +887,18 @@ function registerIpc() {
 
   ipcMain.handle("recovery:startup", async () => startupRecoveryState);
 
-  ipcMain.handle("recovery:latest", async () => readLatestRecoveryPoint());
+  ipcMain.handle("recovery:latest", async () => projectStore.readLatestRecoveryPoint());
 
   ipcMain.handle("recovery:autosave", async (_event, payload: { text: string; projectPath?: string | null; reason?: string | null }) => {
-    if (!payload.text.trim()) return null;
-    const projectId = payload.projectPath ? safeAssetKey(payload.projectPath) : "unsaved";
-    const dir = path.join(userDataDir, "recovery", projectId);
-    await fs.mkdir(dir, { recursive: true });
-    const reason = safeAssetKey(payload.reason || "autosave");
-    const filePath = path.join(dir, `${reason}-${Date.now()}.json`);
-    await fs.writeFile(filePath, payload.text, "utf-8");
-    return { type: reason, path: filePath, timestamp: new Date().toISOString(), size: Buffer.byteLength(payload.text), projectId };
+    return projectStore.autosaveRecovery(payload.text, payload.projectPath || null, payload.reason || null);
   });
 
   ipcMain.handle("recovery:list", async (_event, payload: { projectPath?: string | null }) => {
-    const projectId = payload.projectPath ? safeAssetKey(payload.projectPath) : "unsaved";
-    const dir = path.join(userDataDir, "recovery", projectId);
-    return readRecoveryPoints(dir);
+    return projectStore.listRecovery(payload.projectPath || null);
   });
 
   ipcMain.handle("recovery:restore", async (_event, payload: { sourcePath: string; targetPath?: string | null }) => {
-    const text = await fs.readFile(payload.sourcePath, "utf-8");
-    const target = payload.targetPath || path.join(generatedDir, "recovered_project.json");
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.writeFile(target, text, "utf-8");
-    await addRecent(target);
-    return readProjectFile(target);
+    return projectStore.restoreRecovery(payload.sourcePath, payload.targetPath || null);
   });
 
   ipcMain.handle("project:health", async (_event, payload: { text: string; projectPath?: string | null }) => {
@@ -1012,7 +928,7 @@ function registerIpc() {
 
   ipcMain.handle("workflow:dashboard", async (_event, payload: { text: string; projectPath?: string | null }) => {
     await fs.mkdir(tempDir, { recursive: true });
-    const input = payload.projectPath || await writeTempProject(payload.text, "workflow-dashboard-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "workflow-dashboard-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
     const output = path.join(tempDir, `workflow-dashboard-${Date.now()}.json`);
     const result = await runEngine(["workflow", "dashboard", "--project", input, "-o", output]);
@@ -1030,7 +946,7 @@ function registerIpc() {
 
   ipcMain.handle("feedback:analyze", async (_event, payload: { text: string; projectPath?: string | null; videoPath?: string | null }) => {
     await fs.mkdir(tempDir, { recursive: true });
-    const input = payload.projectPath || await writeTempProject(payload.text, "feedback-analyze-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "feedback-analyze-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
     const output = path.join(tempDir, `feedback-analysis-${Date.now()}.json`);
     const args = ["feedback", "analyze", input, "-o", output];
@@ -1042,7 +958,7 @@ function registerIpc() {
 
   ipcMain.handle("feedback:review", async (_event, payload: { text: string; projectPath?: string | null; videoPath?: string | null; profile?: string | null; note?: string | null; ratings?: Record<string, number> }) => {
     await fs.mkdir(tempDir, { recursive: true });
-    const input = payload.projectPath || await writeTempProject(payload.text, "feedback-review-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "feedback-review-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
     const output = path.join(tempDir, `feedback-review-${Date.now()}.json`);
     const args = ["feedback", "review", input, "--profile", payload.profile || "Default Creator", "-o", output];
@@ -1076,7 +992,7 @@ function registerIpc() {
 
   ipcMain.handle("evolution:report", async (_event, payload: { text: string; projectPath?: string | null; profile?: string | null; includeReleaseCheck?: boolean }) => {
     await fs.mkdir(tempDir, { recursive: true });
-    const input = payload.projectPath || await writeTempProject(payload.text, "evolution-input");
+    const input = payload.projectPath || await projectStore.writeTempProject(payload.text, "evolution-input");
     if (payload.projectPath) await fs.writeFile(payload.projectPath, payload.text, "utf-8");
     const output = path.join(tempDir, `evolution-report-${Date.now()}.json`);
     const args = ["evolution-report", "--project", input, "--profile", payload.profile || "Default Creator", "-o", output];
@@ -1091,42 +1007,29 @@ function registerIpc() {
   });
 
   ipcMain.handle("render:start", async (_event, payload: RenderPayload) => {
-    return enqueueRender(payload);
+    return renderQueue.enqueue(payload);
   });
 
-  ipcMain.handle("render:queue", async () => serializeQueue());
+  ipcMain.handle("render:queue", async () => renderQueue.serialize());
 
   ipcMain.handle("render:pause", async () => {
-    renderQueuePaused = true;
-    broadcastQueue();
-    return serializeQueue();
+    return renderQueue.pause();
   });
 
   ipcMain.handle("render:resume", async () => {
-    renderQueuePaused = false;
-    processRenderQueue();
-    broadcastQueue();
-    return serializeQueue();
+    return renderQueue.resume();
   });
 
   ipcMain.handle("render:cancel", async (_event, payload: { runId: string }) => {
-    cancelRender(payload.runId);
-    return serializeQueue();
+    return renderQueue.cancel(payload.runId);
   });
 
   ipcMain.handle("render:retry", async (_event, payload: { runId: string }) => {
-    retryRender(payload.runId);
-    return serializeQueue();
+    return renderQueue.retry(payload.runId);
   });
 
   ipcMain.handle("render:priority", async (_event, payload: { runId: string; priority: number }) => {
-    const job = renderQueue.find((item) => item.runId === payload.runId);
-    if (job && job.status === "queued") {
-      job.priority = payload.priority;
-      sortRenderQueue();
-    }
-    broadcastQueue();
-    return serializeQueue();
+    return renderQueue.setPriority(payload.runId, payload.priority);
   });
 
   ipcMain.handle("shell:reveal", async (_event, filePath: string) => {
@@ -1164,265 +1067,8 @@ function registerIpc() {
   });
 }
 
-async function readProjectFile(filePath: string) {
-  const text = await fs.readFile(filePath, "utf-8");
-  await addRecent(filePath);
-  return { path: filePath, text, name: path.basename(filePath) };
-}
-
-async function enqueueRender(payload: RenderPayload) {
-  const runId = crypto.randomUUID();
-  const input = await writeTempProject(payload.text, `render-${runId}`);
-  if (payload.projectPath) await addRecent(payload.projectPath);
-  const requestedFormat = payload.format || "mp4";
-  const extension = requestedFormat === "image_sequence" ? "png" : requestedFormat;
-  const outputPath = payload.outputPath || defaultRenderOutputPath(payload, runId, extension);
-  await fs.mkdir(path.dirname(outputPath), { recursive: true });
-  const args = ["render", input, "-o", outputPath, "--quality", payload.quality];
-  if (payload.preset) args.push("--preset", payload.preset);
-  if (payload.format) args.push("--format", payload.format);
-  if (payload.generatePlaceholders) args.push("--generate-placeholders");
-  if (payload.cache) args.push("--cache");
-  if (payload.resume) args.push("--resume");
-  if (payload.gpu) args.push("--gpu");
-
-  const job: QueuedRenderJob = {
-    runId,
-    label: payload.label || (payload.quality === "preview" ? "Preview render" : "Final render"),
-    input,
-    outputPath,
-    args,
-    payload,
-    status: "queued",
-    priority: Number(payload.priority || 0),
-    logs: [],
-    progressPercent: 0,
-    packageStatus: payload.createDeliveryPackage ? "pending" : undefined,
-    sceneCount: estimateSceneCount(payload.text),
-    completedScenes: 0
-  };
-  renderQueue.push(job);
-  sortRenderQueue();
-  broadcastQueue();
-  processRenderQueue();
-  return { runId, outputPath };
-}
-
-function processRenderQueue() {
-  if (renderQueuePaused || activeRender) return;
-  const job = renderQueue.find((item) => item.status === "queued");
-  if (!job) return;
-  activeRender = job;
-  job.status = "running";
-  job.startedAt = Date.now();
-  job.progressPercent = Math.max(job.progressPercent || 0, 2);
-  broadcastQueue();
-  const child = spawn(pythonBinary, [renderPy, ...job.args], { cwd: engineRoot, windowsHide: true });
-  job.child = child;
-  child.stdout.on("data", (chunk: Buffer) => collectRenderLog(job, chunk.toString(), "stdout"));
-  child.stderr.on("data", (chunk: Buffer) => collectRenderLog(job, chunk.toString(), "stderr"));
-  child.on("close", async (exitCode) => {
-    job.exitCode = exitCode;
-    job.status = job.status === "canceled" ? "canceled" : exitCode === 0 ? "completed" : "failed";
-    if (job.status === "completed") job.progressPercent = 100;
-    job.child = undefined;
-    if (job.status === "completed" && job.payload.quality === "final" && job.payload.createDeliveryPackage) {
-      await createDeliveryPackageForJob(job);
-    }
-    activeRender = null;
-    mainWindow?.webContents.send("render:complete", { runId: job.runId, exitCode, outputPath: job.outputPath, packagePath: job.packagePath });
-    broadcastQueue();
-    processRenderQueue();
-  });
-}
-
-function collectRenderLog(job: QueuedRenderJob, text: string, stream: "stdout" | "stderr") {
-  for (const line of text.split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    job.logs = [...job.logs.slice(-120), line];
-    updateRenderProgress(job, line);
-    mainWindow?.webContents.send("render:log", { runId: job.runId, line, stream });
-  }
-  broadcastQueue();
-}
-
-async function createDeliveryPackageForJob(job: QueuedRenderJob) {
-  job.packageStatus = "running";
-  job.packageError = undefined;
-  broadcastQueue();
-  const packageDir = path.join(exportsRoot, `${safePackageName(job)}-${Date.now()}`);
-  const renderLogPath = path.join(path.dirname(job.outputPath), `${job.runId}-render_logs.txt`);
-  await fs.mkdir(path.dirname(renderLogPath), { recursive: true });
-  await fs.writeFile(renderLogPath, job.logs.join("\n") + "\n", "utf-8");
-  const platforms = job.payload.packagePlatforms?.length ? job.payload.packagePlatforms : platformsForPreset(job.payload.preset);
-  const args = ["post-package", job.input, job.outputPath, "--platforms", ...platforms, "-o", packageDir, "--render-logs", renderLogPath];
-  if (job.payload.packageTitle) args.push("--title", job.payload.packageTitle);
-  const renderReportPath = path.join(path.dirname(job.outputPath), "render_report.json");
-  if (fsSync.existsSync(renderReportPath)) args.push("--render-report", renderReportPath);
-  const result = await runEngine(args);
-  for (const line of `${result.stdout}\n${result.stderr}`.split(/\r?\n/)) {
-    if (line.trim()) {
-      job.logs = [...job.logs.slice(-120), line];
-      mainWindow?.webContents.send("render:log", { runId: job.runId, line, stream: "stdout" });
-    }
-  }
-  if (result.ok) {
-    job.packageStatus = "completed";
-    job.packagePath = packageDir;
-  } else {
-    job.packageStatus = "failed";
-    job.packageError = result.stderr || result.stdout || "Delivery package failed.";
-  }
-  broadcastQueue();
-}
-
-function updateRenderProgress(job: QueuedRenderJob, line: string) {
-  const lower = line.toLowerCase();
-  const sceneMatch = line.match(/(?:Rendering scene|Using cached scene) '([^']+)'/i);
-  if (sceneMatch) {
-    job.currentScene = sceneMatch[1];
-    job.completedScenes = Math.min(job.sceneCount || 1, (job.completedScenes || 0) + 1);
-    const sceneRatio = (job.completedScenes || 0) / Math.max(1, job.sceneCount || 1);
-    job.progressPercent = Math.max(job.progressPercent || 0, Math.round(8 + sceneRatio * 58));
-  } else if (lower.includes("rendering scenes")) {
-    job.progressPercent = Math.max(job.progressPercent || 0, 6);
-  } else if (lower.includes("applying transitions")) {
-    job.currentScene = "transitions";
-    job.progressPercent = Math.max(job.progressPercent || 0, 72);
-  } else if (lower.includes("rendering audio")) {
-    job.currentScene = "audio mix";
-    job.progressPercent = Math.max(job.progressPercent || 0, 82);
-  } else if (lower.includes("exporting")) {
-    job.currentScene = "export";
-    job.progressPercent = Math.max(job.progressPercent || 0, 92);
-  } else if (lower.includes("export complete")) {
-    job.currentScene = "complete";
-    job.progressPercent = 100;
-  }
-  if (job.startedAt && job.progressPercent && job.progressPercent > 1 && job.progressPercent < 100) {
-    const elapsed = (Date.now() - job.startedAt) / 1000;
-    const totalEstimate = elapsed / (job.progressPercent / 100);
-    job.estimatedRemainingSeconds = Math.max(0, Math.round(totalEstimate - elapsed));
-  } else if (job.progressPercent === 100) {
-    job.estimatedRemainingSeconds = 0;
-  }
-}
-
-function estimateSceneCount(text: string) {
-  try {
-    const project = JSON.parse(text) as { timeline?: Array<{ excludeFromFinal?: boolean }> };
-    return Math.max(1, (project.timeline || []).filter((scene) => !scene.excludeFromFinal).length);
-  } catch {
-    return 1;
-  }
-}
-
-function platformsForPreset(preset?: string | null) {
-  const value = preset || "youtube_1080p";
-  if (value === "shorts") return ["youtube_shorts"];
-  if (value === "tiktok_reels") return ["tiktok"];
-  if (value === "instagram_reels") return ["instagram_reels"];
-  if (value === "discord_720p") return ["discord"];
-  if (value === "high_quality_archive" || value === "cinematic_4k") return ["high_quality_archive"];
-  return ["youtube_landscape"];
-}
-
-function safePackageName(job: QueuedRenderJob) {
-  try {
-    const project = JSON.parse(fsSync.readFileSync(job.input, "utf-8")) as {
-      metadata?: { productName?: string; title?: string; contentGenerator?: { contentBrief?: { productName?: string } } };
-    };
-    return slugify(
-      project.metadata?.contentGenerator?.contentBrief?.productName
-      || project.metadata?.productName
-      || project.metadata?.title
-      || path.basename(job.input, path.extname(job.input))
-    );
-  } catch {
-    return slugify(path.basename(job.input, path.extname(job.input)));
-  }
-}
-
-function cancelRender(runId: string) {
-  const job = renderQueue.find((item) => item.runId === runId);
-  if (!job) return;
-  if (job.status === "running" && job.child) {
-    job.status = "canceled";
-    job.child.kill();
-  } else if (job.status === "queued") {
-    job.status = "canceled";
-  }
-  broadcastQueue();
-}
-
-function retryRender(runId: string) {
-  const job = renderQueue.find((item) => item.runId === runId);
-  if (!job || !["failed", "canceled", "completed"].includes(job.status)) return;
-  job.status = "queued";
-  job.exitCode = undefined;
-  job.logs = [];
-  job.progressPercent = 0;
-  job.currentScene = undefined;
-  job.estimatedRemainingSeconds = undefined;
-  job.packagePath = undefined;
-  job.packageError = undefined;
-  job.packageStatus = job.payload.createDeliveryPackage ? "pending" : undefined;
-  job.completedScenes = 0;
-  sortRenderQueue();
-  broadcastQueue();
-  processRenderQueue();
-}
-
-function sortRenderQueue() {
-  renderQueue.sort((a, b) => {
-    if (a.status === "running") return -1;
-    if (b.status === "running") return 1;
-    if (a.status !== b.status) {
-      const rank = { queued: 0, failed: 1, canceled: 2, completed: 3, running: -1 };
-      return rank[a.status] - rank[b.status];
-    }
-    return b.priority - a.priority;
-  });
-}
-
-function serializeQueue() {
-  return renderQueue.map((job) => ({
-    runId: job.runId,
-    label: job.label,
-    outputPath: job.outputPath,
-    status: job.status,
-    priority: job.priority,
-    exitCode: job.exitCode,
-    currentScene: job.currentScene,
-    progressPercent: job.progressPercent || 0,
-    estimatedRemainingSeconds: job.estimatedRemainingSeconds,
-    packagePath: job.packagePath,
-    packageStatus: job.packageStatus,
-    packageError: job.packageError,
-    sceneCount: job.sceneCount,
-    completedScenes: job.completedScenes
-  }));
-}
-
-function broadcastQueue() {
-  mainWindow?.webContents.send("render:queue", serializeQueue());
-}
-
-async function runEngine(args: string[]): Promise<EngineResult> {
-  return new Promise((resolve) => {
-    const child = spawn(pythonBinary, [renderPy, ...args], { cwd: engineRoot, windowsHide: true });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-    child.on("close", (exitCode) => {
-      resolve({ ok: exitCode === 0, stdout, stderr, exitCode });
-    });
-  });
+async function runEngine(args: string[]) {
+  return runEngineCommand({ pythonBinary, renderPy, engineRoot, args });
 }
 
 async function readJsonIfExists(filePath: string) {
@@ -1436,34 +1082,6 @@ async function pickFolder(title: string) {
     properties: ["openDirectory"]
   });
   return result.canceled ? null : result.filePaths[0] || null;
-}
-
-function slugify(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 40) || "auto-video";
-}
-
-function timestampForFilename(date = new Date()) {
-  return date
-    .toISOString()
-    .replace(/\.\d{3}Z$/, "Z")
-    .replace(/:/g, "")
-    .replace("T", "-");
-}
-
-function defaultRenderOutputPath(payload: RenderPayload, runId: string, extension: string) {
-  const projectName = slugify(renderProjectName(payload));
-  const quality = slugify(payload.quality || "render");
-  const preset = slugify(payload.preset || "project");
-  const shortRun = runId.replace(/-/g, "").slice(0, 8);
-  const baseName = `${projectName}-${quality}-${preset}-${timestampForFilename()}-${shortRun}`;
-  if (payload.format === "image_sequence") {
-    return path.join(outputRoot, baseName, `${baseName}_%05d.${extension}`);
-  }
-  return path.join(outputRoot, `${baseName}.${extension}`);
 }
 
 async function moveBeginnerRenderToVideos(data: Record<string, any>, text: string, projectPath: string, payload: BeginnerAutoTemplatePayload) {
@@ -1483,6 +1101,7 @@ async function moveBeginnerRenderToVideos(data: Record<string, any>, text: strin
     },
     crypto.randomUUID(),
     extension,
+    outputRoot,
   );
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   await fs.copyFile(renderedVideo, outputPath);
@@ -1492,140 +1111,6 @@ async function moveBeginnerRenderToVideos(data: Record<string, any>, text: strin
     renderedVideo: outputPath,
     localVideosFolder: outputRoot,
   };
-}
-
-function renderProjectName(payload: RenderPayload) {
-  const fromProject = projectTitleFromText(payload.text);
-  if (fromProject) return fromProject;
-  if (payload.projectPath) return path.basename(payload.projectPath, path.extname(payload.projectPath));
-  if (payload.label) return payload.label;
-  return "automatic-video";
-}
-
-function projectTitleFromText(text: string) {
-  try {
-    const data = JSON.parse(text) as Record<string, any>;
-    const metadata = data.metadata || {};
-    const contentGenerator = metadata.contentGenerator || {};
-    const brief = contentGenerator.contentBrief || {};
-    const beginner = metadata.beginnerAutoTemplate || {};
-    const project = data.project || {};
-    const candidates = [
-      data.title,
-      data.name,
-      metadata.title,
-      metadata.name,
-      brief.productName,
-      beginner.template?.name,
-      project.name,
-    ];
-    for (const value of candidates) {
-      if (typeof value === "string" && value.trim()) return value.trim();
-    }
-    const firstTextLayer = firstTimelineText(data.timeline);
-    if (firstTextLayer) return firstTextLayer;
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-function firstTimelineText(timeline: unknown) {
-  if (!Array.isArray(timeline)) return null;
-  for (const scene of timeline) {
-    if (!scene || typeof scene !== "object") continue;
-    const layers = (scene as Record<string, unknown>).layers;
-    if (!Array.isArray(layers)) continue;
-    for (const layer of layers) {
-      if (!layer || typeof layer !== "object") continue;
-      const layerData = layer as Record<string, unknown>;
-      if (typeof layerData.text === "string" && layerData.text.trim()) {
-        return layerData.text.trim();
-      }
-      if (typeof layerData.title === "string" && layerData.title.trim()) {
-        return layerData.title.trim();
-      }
-    }
-  }
-  return null;
-}
-
-function normalizeSettings(settings: Partial<AppSettings> = {}): AppSettings {
-  const next = { ...defaultSettings(), ...settings };
-  if (!next.defaultExportFolder || isLegacyExportFolder(next.defaultExportFolder)) {
-    next.defaultExportFolder = outputRoot;
-  }
-  return next;
-}
-
-function isLegacyExportFolder(folder: string | null | undefined) {
-  if (!folder) return true;
-  const resolved = path.resolve(folder);
-  return legacyOutputRoots.some((legacy) => resolved === path.resolve(legacy));
-}
-
-async function writeTempProject(text: string, prefix: string) {
-  await fs.mkdir(tempDir, { recursive: true });
-  const filePath = path.join(tempDir, `${prefix}-${Date.now()}.json`);
-  await fs.writeFile(filePath, text, "utf-8");
-  return filePath;
-}
-
-function tempProjectPath(prefix: string) {
-  return path.join(tempDir, `${prefix}-${Date.now()}.json`);
-}
-
-async function readRecent(): Promise<RecentProject[]> {
-  try {
-    const text = await fs.readFile(recentPath, "utf-8");
-    return JSON.parse(text);
-  } catch {
-    return [];
-  }
-}
-
-async function addRecent(filePath: string) {
-  await fs.mkdir(userDataDir, { recursive: true });
-  const existing = await readRecent();
-  const next = [
-    { path: filePath, name: path.basename(filePath), openedAt: new Date().toISOString() },
-    ...existing.filter((item) => item.path !== filePath)
-  ].slice(0, 12);
-  await fs.writeFile(recentPath, JSON.stringify(next, null, 2), "utf-8");
-}
-
-function defaultSettings(): AppSettings {
-  return {
-    theme: "aegis",
-    autosave: true,
-    autosaveIntervalSeconds: 120,
-    previewTimeSeconds: 1,
-    keyboardShortcuts: true,
-    onboardingComplete: false,
-    defaultWorkflow: "quick",
-    defaultPlatform: "youtube_shorts",
-    defaultStyle: "cinematic",
-    defaultExportFolder: outputRoot,
-    beginnerTips: true,
-    workspacePreset: "editing",
-    panelDock: "standard",
-    uiScale: "medium",
-    accentColor: "#6db5a5",
-    leftRailWidth: 260,
-    rightRailWidth: 360,
-    leftRailOpen: true,
-    rightRailOpen: true,
-    monitorPositions: {}
-  };
-}
-
-async function readSettings(): Promise<AppSettings> {
-  try {
-    const text = await fs.readFile(settingsPath, "utf-8");
-    return normalizeSettings(JSON.parse(text));
-  } catch {
-    return normalizeSettings();
-  }
 }
 
 function escapeHtml(value: string) {
@@ -1641,7 +1126,7 @@ function localFileUrl(filePath: string) {
 }
 
 async function openDetachedPanel(payload: { panel: "preview" | "timeline" | "inspector"; title?: string | null; projectPath?: string | null; previewPath?: string | null }) {
-  const settings = await readSettings();
+  const settings = await projectStore.readSettings();
   const panel = payload.panel;
   const saved = settings.monitorPositions?.[panel];
   const width = Math.max(420, Math.min(2200, Number(saved?.width || (panel === "preview" ? 960 : 760))));
@@ -1692,7 +1177,7 @@ async function openDetachedPanel(payload: { panel: "preview" | "timeline" | "ins
     </html>`;
   await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
   win.on("close", async () => {
-    const current = await readSettings();
+    const current = await projectStore.readSettings();
     const next: AppSettings = {
       ...current,
       monitorPositions: {
@@ -1700,8 +1185,7 @@ async function openDetachedPanel(payload: { panel: "preview" | "timeline" | "ins
         [panel]: win.getBounds()
       }
     };
-    await fs.mkdir(userDataDir, { recursive: true });
-    await fs.writeFile(settingsPath, JSON.stringify(next, null, 2), "utf-8");
+    await projectStore.saveSettings(next);
   });
   await logFrictionEvent({ event: "layout_popout", label: panel });
   return { panel, bounds: win.getBounds() };
@@ -1872,7 +1356,7 @@ async function deriveAdaptiveWorkflowMemory(
 }
 
 async function workflowSignalsFromRecentProjects(): Promise<WorkflowSignals[]> {
-  const recent = await readRecent();
+  const recent = await projectStore.readRecent();
   const signals: WorkflowSignals[] = [];
   for (const item of recent.slice(0, 8)) {
     try {
@@ -2291,64 +1775,6 @@ function wordTokens(text: string) {
   return new Set((text.replace(/[_/]+/g, " ").match(/[a-z0-9]+/g) || []));
 }
 
-async function readRecoveryPoints(dir: string) {
-  if (!fsSync.existsSync(dir)) return [];
-  const points: RecoveryPoint[] = [];
-  const projectId = path.basename(dir);
-  for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
-    if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== ".json") continue;
-    const filePath = path.join(dir, entry.name);
-    const stat = await fs.stat(filePath);
-    points.push({
-      type: entry.name.startsWith("autosave") ? "autosave" : entry.name.split("-")[0] || "backup",
-      path: filePath,
-      timestamp: stat.mtime.toISOString(),
-      size: stat.size,
-      projectId
-    });
-  }
-  return points.sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)));
-}
-
-async function readAllRecoveryPoints() {
-  const root = path.join(userDataDir, "recovery");
-  if (!fsSync.existsSync(root)) return [] as RecoveryPoint[];
-  const all: RecoveryPoint[] = [];
-  for (const entry of await fs.readdir(root, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    all.push(...await readRecoveryPoints(path.join(root, entry.name)));
-  }
-  return all.sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
-}
-
-async function readLatestRecoveryPoint() {
-  return (await readAllRecoveryPoints())[0] || null;
-}
-
-async function readStartupRecoveryState() {
-  let previous: Record<string, unknown> | null = null;
-  try {
-    previous = fsSync.existsSync(sessionStatePath) ? JSON.parse(await fs.readFile(sessionStatePath, "utf-8")) : null;
-  } catch {
-    previous = null;
-  }
-  const latestRecovery = await readLatestRecoveryPoint();
-  return {
-    crashed: Boolean(previous?.active && latestRecovery),
-    lastSavedAt: String(previous?.timestamp || latestRecovery?.timestamp || ""),
-    latestRecovery
-  };
-}
-
-function writeSessionState(active: boolean) {
-  try {
-    fsSync.mkdirSync(userDataDir, { recursive: true });
-    fsSync.writeFileSync(sessionStatePath, JSON.stringify({ active, timestamp: new Date().toISOString() }, null, 2) + "\n", "utf-8");
-  } catch {
-    // Session markers are recovery helpers only; failure should not block app startup/shutdown.
-  }
-}
-
 async function templatePackRows(): Promise<TemplatePack[]> {
   const templateRows: Array<Pick<TemplatePack, "key" | "name" | "exportPreset" | "transitionStyle" | "requiredAssets">> = [
     { key: "youtube_intro", name: "YouTube Intro", exportPreset: "youtube_1080p", transitionStyle: "crossfade", requiredAssets: { logo: "image", intro_bg: "video", music: "audio", whoosh: "audio" } },
@@ -2404,7 +1830,7 @@ function projectHealthCheck(text: string, projectPath: string | null) {
     });
   }
   if (!data) {
-    return { ready: false, score: 0, checkedAt: new Date().toISOString(), issues, assets: [], failedRenders: renderQueue.filter((job) => job.status === "failed").length };
+    return { ready: false, score: 0, checkedAt: new Date().toISOString(), issues, assets: [], failedRenders: renderQueue.failedCount() };
   }
   let assets: ReturnType<typeof checkAssets> = [];
   try {
@@ -2429,7 +1855,7 @@ function projectHealthCheck(text: string, projectPath: string | null) {
     const layers = Array.isArray(scene.layers) ? scene.layers : [];
     if (!layers.length) issues.push({ id: `empty_scene_${index}`, severity: "info", message: `Scene ${scene.id || index + 1} has no layers.`, suggestion: "Add media, text, captions, or intentionally mark it as a spacer." });
   });
-  const failedRenders = renderQueue.filter((job) => job.status === "failed").length;
+  const failedRenders = renderQueue.failedCount();
   if (failedRenders) issues.push({ id: "failed_renders", severity: "warning", message: `${failedRenders} render job(s) failed this session.`, suggestion: "Open render logs before final export." });
   const score = Math.max(0, 100 - issues.reduce((sum, issue) => sum + (issue.severity === "error" ? 24 : issue.severity === "warning" ? 10 : 3), 0));
   return {
